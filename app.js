@@ -17,10 +17,23 @@
   // -----------------------------------------------------------------------
   // Constants
   // -----------------------------------------------------------------------
-  const MUSCLE_GROUPS = [
-    "Chest", "Back", "Shoulders", "Biceps", "Triceps", "Legs",
-    "Quads", "Abs", "Cardio"
+  // Muscle groups are fully user-managed (see the Settings tab) — each one
+  // has a name, a target weekly frequency, and a color assigned from this
+  // palette when it's created. Defaults below are only used to seed a
+  // starting list for new installs; the user can rename the concept
+  // entirely by deleting/adding groups afterwards.
+  const MUSCLE_COLOR_PALETTE = [
+    "#f97316", "#38bdf8", "#a78bfa", "#f472b6", "#fb7185", "#60a5fa", "#4ade80", "#fbbf24", "#ef4444",
+    "#2dd4bf", "#facc15", "#c084fc", "#fb923c", "#34d399"
   ];
+  const DEFAULT_MUSCLE_GROUPS = [
+    { name: "Chest", color: "#f97316" }, { name: "Back", color: "#38bdf8" },
+    { name: "Shoulders", color: "#a78bfa" }, { name: "Biceps", color: "#f472b6" },
+    { name: "Triceps", color: "#fb7185" }, { name: "Legs", color: "#60a5fa" },
+    { name: "Quads", color: "#4ade80" }, { name: "Abs", color: "#fbbf24" },
+    { name: "Cardio", color: "#ef4444" }
+  ];
+  const DEFAULT_FREQUENCY = 2; // times per week
 
   // Muscle groups that aren't about lifting heavier over time — excluded from the Strength Index.
   const NON_STRENGTH_GROUPS = ["Cardio"];
@@ -29,19 +42,49 @@
   // records can be migrated on load (see migrateLegacyMuscleGroups below).
   const REMOVED_MUSCLE_GROUPS = ["Hamstrings", "Glutes", "Calves"];
 
-  const MUSCLE_COLORS = {
-    Chest: "#f97316", Back: "#38bdf8", Shoulders: "#a78bfa",
-    Biceps: "#f472b6", Triceps: "#fb7185", Legs: "#60a5fa", Quads: "#4ade80",
-    Abs: "#fbbf24", Cardio: "#ef4444"
-  };
-
   // The exercise library is fully user-built — you add each exercise
   // yourself (with muscle groups, optional variations and an optional photo).
   // The old pre-seeded defaults were retired; clearBuiltinExercises below
   // removes them once from devices that had them.
 
+  // What a set logs depends on the exercise's metric. Only "weight_reps"
+  // feeds Best/PRs/the Strength Index (est. 1RM needs both a weight and a
+  // rep count) — the others just record their raw numbers per set.
+  const METRIC_TYPES = {
+    weight_reps: { label: "Weight × reps", fields: [
+      { key: "weight", unit: "kg", placeholder: "kg", inputMode: "decimal" },
+      { key: "reps", unit: "reps", placeholder: "reps", inputMode: "numeric" }
+    ] },
+    reps_only: { label: "Reps only (bodyweight)", fields: [
+      { key: "reps", unit: "reps", placeholder: "reps", inputMode: "numeric" }
+    ] },
+    time: { label: "Time", fields: [
+      { key: "minutes", unit: "min", placeholder: "min", inputMode: "decimal" }
+    ] },
+    distance: { label: "Distance", fields: [
+      { key: "distance", unit: "km", placeholder: "km", inputMode: "decimal" }
+    ] }
+  };
+  const DEFAULT_METRIC = "weight_reps";
+
+  function metricFields(metric) {
+    return (METRIC_TYPES[metric] || METRIC_TYPES[DEFAULT_METRIC]).fields;
+  }
+  function emptySet(metric) {
+    const set = {};
+    metricFields(metric).forEach((f) => (set[f.key] = ""));
+    return set;
+  }
+  function formatSetValue(set, metric) {
+    if (metric === "weight_reps") return `${set.weight || 0}×${set.reps || 0}`;
+    if (metric === "reps_only") return `${set.reps || 0} reps`;
+    if (metric === "time") return `${set.minutes || 0} min`;
+    if (metric === "distance") return `${set.distance || 0} km`;
+    return "";
+  }
+
   const DB_NAME = "ironLogDB";
-  const DB_VERSION = 1;
+  const DB_VERSION = 2;
   const todayStr = () => new Date().toISOString().slice(0, 10);
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
@@ -76,6 +119,9 @@
           }
           if (!db.objectStoreNames.contains("bodyweight")) {
             db.createObjectStore("bodyweight", { keyPath: "date" });
+          }
+          if (!db.objectStoreNames.contains("muscleGroups")) {
+            db.createObjectStore("muscleGroups", { keyPath: "id" });
           }
         };
         req.onsuccess = () => resolve(req.result);
@@ -144,13 +190,36 @@
       }
     }
 
+    // One-time seed: give new installs a starting muscle group list (with
+    // frequency + color already set) that the user is then free to edit,
+    // delete from, or add to in Settings.
+    async function ensureMuscleGroupsSeeded() {
+      const done = await get("settings", "muscleGroupsSeeded");
+      if (done) return;
+      const existing = await getAll("muscleGroups");
+      if (existing.length === 0) {
+        for (const mg of DEFAULT_MUSCLE_GROUPS) {
+          await put("muscleGroups", { id: uid(), name: mg.name, frequency: DEFAULT_FREQUENCY, color: mg.color });
+        }
+      }
+      await put("settings", { key: "muscleGroupsSeeded", value: true });
+    }
+
     return {
-      init: () => open().then(ensureSeeded).then(clearBuiltinExercises).then(migrateLegacyMuscleGroups),
+      init: () => open().then(ensureSeeded).then(clearBuiltinExercises).then(migrateLegacyMuscleGroups).then(ensureMuscleGroupsSeeded),
+
+      // Muscle groups — fully user-managed (see Settings)
+      listMuscleGroups: () => getAll("muscleGroups").then((l) => l.sort((a, b) => a.name.localeCompare(b.name))),
+      addMuscleGroup: (name, frequency) => getAll("muscleGroups").then((existing) =>
+        put("muscleGroups", { id: uid(), name, frequency, color: MUSCLE_COLOR_PALETTE[existing.length % MUSCLE_COLOR_PALETTE.length] })
+      ),
+      updateMuscleGroup: (mg) => put("muscleGroups", mg),
+      deleteMuscleGroup: (id) => del("muscleGroups", id),
 
       // Exercises
       listExercises: () => getAll("exercises").then((l) => l.sort((a, b) => a.name.localeCompare(b.name))),
-      addExercise: (name, muscleGroups, variations) =>
-        put("exercises", { id: uid(), name, muscleGroups, variations: variations || [], isCustom: true }),
+      addExercise: (name, muscleGroups, variations, metric) =>
+        put("exercises", { id: uid(), name, muscleGroups, variations: variations || [], metric: metric || DEFAULT_METRIC, isCustom: true }),
       updateExercise: (ex) => put("exercises", ex),
       deleteExercise: (id) => del("exercises", id),
 
@@ -181,8 +250,8 @@
 
       // Export / Import (manual backup today; becomes the seed for real sync later)
       async exportAll() {
-        const [exercises, sessions, protein, photos, bodyweight] = await Promise.all([
-          getAll("exercises"), getAll("sessions"), getAll("protein"), getAll("photos"), getAll("bodyweight")
+        const [exercises, sessions, protein, photos, bodyweight, muscleGroups] = await Promise.all([
+          getAll("exercises"), getAll("sessions"), getAll("protein"), getAll("photos"), getAll("bodyweight"), getAll("muscleGroups")
         ]);
         const settingsList = await getAll("settings");
         // Blobs can't be JSON-stringified directly — encode as base64 data URLs for export.
@@ -191,7 +260,7 @@
           reader.onload = () => resolve({ exerciseId: p.exerciseId, dataUrl: reader.result });
           reader.readAsDataURL(p.blob);
         })));
-        return { exportedAt: new Date().toISOString(), exercises, sessions, protein, settings: settingsList, photos: photosEncoded, bodyweight };
+        return { exportedAt: new Date().toISOString(), exercises, sessions, protein, settings: settingsList, photos: photosEncoded, bodyweight, muscleGroups };
       },
       async importAll(data) {
         if (data.exercises) for (const e of data.exercises) await put("exercises", e);
@@ -199,6 +268,7 @@
         if (data.protein) for (const p of data.protein) await put("protein", p);
         if (data.settings) for (const s of data.settings) await put("settings", s);
         if (data.bodyweight) for (const b of data.bodyweight) await put("bodyweight", b);
+        if (data.muscleGroups) for (const m of data.muscleGroups) await put("muscleGroups", m);
         if (data.photos) {
           for (const p of data.photos) {
             if (!p.dataUrl) continue;
@@ -209,13 +279,14 @@
       },
       async clearAll() {
         const db = await open();
-        for (const store of ["exercises", "sessions", "protein", "settings", "photos", "bodyweight"]) {
+        for (const store of ["exercises", "sessions", "protein", "settings", "photos", "bodyweight", "muscleGroups"]) {
           await new Promise((res, rej) => {
             const r = db.transaction(store, "readwrite").objectStore(store).clear();
             r.onsuccess = res; r.onerror = () => rej(r.error);
           });
         }
         await ensureSeeded();
+        await ensureMuscleGroupsSeeded();
       }
     };
   })();
@@ -244,7 +315,7 @@
       for (const entry of s.entries) {
         if (entry.exerciseId !== exerciseId) continue;
         if (variation !== undefined && (entry.variation || "") !== variation) continue;
-        if (entry.sets.some((x) => x.weight || x.reps)) return { date: s.date, sets: entry.sets };
+        if (entry.sets.some((x) => Object.values(x).some((v) => v))) return { date: s.date, sets: entry.sets };
       }
     }
     return null;
@@ -281,27 +352,62 @@
   }
 
   // Build a map: muscleGroup -> { lastDate, daysSince } from session history
+  // Each muscle group's target frequency (times/week) implies a target rest
+  // interval (7 / frequency days) — daysSince is compared against that
+  // interval, rather than a fixed threshold, so a muscle trained often (e.g.
+  // 4x/week) shows overdue sooner than one trained rarely (e.g. 1x/week).
   function computeRotation(sessions) {
+    const groups = state.muscleGroups;
     const last = {};
-    MUSCLE_GROUPS.forEach((mg) => (last[mg] = null));
+    groups.forEach((mg) => (last[mg.name] = null));
     for (const s of sessions) {
       for (const entry of s.entries) {
         for (const mg of entry.muscleGroups || []) {
+          if (!(mg in last)) continue;
           if (!last[mg] || s.date > last[mg]) last[mg] = s.date;
         }
       }
     }
-    return MUSCLE_GROUPS.map((mg) => ({
-      muscle: mg,
-      lastDate: last[mg],
-      daysSince: last[mg] ? daysAgo(last[mg]) : Infinity
-    })).sort((a, b) => b.daysSince - a.daysSince);
+    return groups.map((mg) => {
+      const daysSince = last[mg.name] ? daysAgo(last[mg.name]) : Infinity;
+      const interval = 7 / (mg.frequency || 1);
+      return {
+        muscle: mg.name,
+        frequency: mg.frequency || 1,
+        lastDate: last[mg.name],
+        daysSince,
+        overdueRatio: daysSince === Infinity ? Infinity : daysSince / interval
+      };
+    }).sort((a, b) => b.overdueRatio - a.overdueRatio);
   }
 
-  function rotationColor(daysSince) {
-    if (daysSince === Infinity || daysSince >= 8) return "bad";
-    if (daysSince >= 4) return "warn";
+  // Thresholds are fractions of the target interval (7 / frequency days),
+  // not fixed day counts — e.g. at 2x/week (3.5-day interval), day 3 is
+  // already 0.86 of the way there, so it shows as "upcoming" (orange)
+  // rather than waiting until the interval is actually reached.
+  function rotationColor(overdueRatio) {
+    if (overdueRatio === Infinity || overdueRatio >= 1.5) return "bad";
+    if (overdueRatio >= 0.75) return "warn";
     return "good";
+  }
+
+  const ROTATION_STATUS_COLORS = { good: "var(--good)", warn: "var(--warn)", bad: "var(--bad)" };
+
+  // Shared row markup for the three places rotation renders (Home, full
+  // Muscle rotation card, Progress tab's inline copy). Bar color reflects
+  // training urgency relative to each muscle's own target frequency — not
+  // the muscle's identity — so green/orange/red always means
+  // recently-done/upcoming/overdue.
+  function rotationItemHTML(r) {
+    const pct = r.overdueRatio === Infinity ? 100 : Math.min(100, Math.round((r.overdueRatio / 1.5) * 100));
+    const status = rotationColor(r.overdueRatio);
+    return `
+      <div class="rotation-item" style="margin-bottom:10px">
+        <span class="small" style="width:78px">${r.muscle}<div class="small muted" style="font-weight:400">${r.frequency}x/wk</div></span>
+        <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${ROTATION_STATUS_COLORS[status]}"></div></div>
+        <span class="pill ${status}">${r.daysSince === Infinity ? "Never" : fmtDaysAgo(r.daysSince)}</span>
+      </div>
+    `;
   }
 
   // Best set (by est 1RM) per exercise across all sessions
@@ -336,6 +442,24 @@
         }
         if (sessionBestSet) {
           history.push({ date: s.date, weight: sessionBestSet.weight, reps: sessionBestSet.reps, orm: sessionBestOrm, volume: sessionVolume });
+        }
+      }
+    }
+    history.sort((a, b) => a.date.localeCompare(b.date));
+    return history;
+  }
+
+  // Flat, chronological log of every set for a non-weight_reps exercise
+  // (time / distance / reps-only) — no "best" concept, just the raw numbers.
+  function genericSetHistory(sessions, exerciseId) {
+    const history = [];
+    for (const s of sessions) {
+      for (const entry of s.entries) {
+        if (entry.exerciseId !== exerciseId) continue;
+        const metric = entry.metric || DEFAULT_METRIC;
+        for (const set of entry.sets) {
+          if (!Object.values(set).some((v) => v)) continue;
+          history.push({ date: s.date, set, metric });
         }
       }
     }
@@ -407,7 +531,8 @@
     );
 
     const byMuscle = {};
-    for (const mg of MUSCLE_GROUPS) {
+    for (const mgObj of state.muscleGroups) {
+      const mg = mgObj.name;
       if (NON_STRENGTH_GROUPS.includes(mg)) continue;
       const series = strengthExercises
         .filter((ex) => ex.muscleGroups.includes(mg))
@@ -543,6 +668,7 @@
     protein: [],
     proteinGoal: 150,
     bodyweight: [],
+    muscleGroups: [],
     weightRange: "2w",   // defaults to 2 weeks, per WEIGHT_RANGES above
     photoUrls: {},       // exerciseId -> object URL for its photo (if any)
     activeSession: null,  // in-memory in-progress workout
@@ -565,14 +691,15 @@
   }
 
   async function loadAll() {
-    const [exercises, sessions, protein, proteinGoal, bodyweight] = await Promise.all([
-      Repo.listExercises(), Repo.listSessions(), Repo.listProtein(), Repo.getSetting("proteinGoal", 150), Repo.listBodyweight()
+    const [exercises, sessions, protein, proteinGoal, bodyweight, muscleGroups] = await Promise.all([
+      Repo.listExercises(), Repo.listSessions(), Repo.listProtein(), Repo.getSetting("proteinGoal", 150), Repo.listBodyweight(), Repo.listMuscleGroups()
     ]);
     state.exercises = exercises;
     state.sessions = sessions;
     state.protein = protein;
     state.proteinGoal = proteinGoal;
     state.bodyweight = bodyweight;
+    state.muscleGroups = muscleGroups;
     await refreshPhotoUrls();
   }
 
@@ -621,7 +748,6 @@
 
   function viewHome() {
     const rotation = computeRotation(state.sessions);
-    const top3 = rotation.slice(0, 3);
     const todayProtein = state.protein.filter((p) => p.date === todayStr());
     const totalToday = todayProtein.reduce((a, p) => a + p.amount, 0);
     const pct = Math.min(100, Math.round((totalToday / state.proteinGoal) * 100));
@@ -633,14 +759,7 @@
     return `
       <div class="view">
         <div class="card">
-          <h2>Up next <span class="link" data-nav="progress">Muscle detail →</span></h2>
-          ${top3.map((r) => `
-            <div class="rotation-item" style="margin-bottom:10px">
-              <span class="small" style="width:78px">${r.muscle}</span>
-              <div class="bar-track"><div class="bar-fill" style="width:${r.daysSince === Infinity ? 100 : Math.min(100, r.daysSince * 12)}%;background:${MUSCLE_COLORS[r.muscle]}"></div></div>
-              <span class="pill ${rotationColor(r.daysSince)}">${r.daysSince === Infinity ? "Never" : fmtDaysAgo(r.daysSince)}</span>
-            </div>
-          `).join("")}
+          <h2>This week</h2>
           ${weekDotsHTML()}
           <button class="btn primary block" data-nav="train" style="margin-top:10px">Start Workout</button>
         </div>
@@ -672,6 +791,11 @@
         </div>
 
         <div class="card">
+          <h2>Muscle rotation <span class="link" data-nav="progress">Muscle detail →</span></h2>
+          ${rotation.map(rotationItemHTML).join("")}
+        </div>
+
+        <div class="card">
           <h2>Recent sessions</h2>
           ${recent.length === 0 ? `<div class="empty">No sessions logged yet.</div>` :
             recent.map((s) => {
@@ -697,13 +821,7 @@
         <div class="card">
           <h2>Muscle group rotation</h2>
           <div class="small muted" style="margin-bottom:10px">Ranked by longest time since last trained.</div>
-          ${rotation.map((r) => `
-            <div class="rotation-item" style="margin-bottom:12px">
-              <span class="small" style="width:78px">${r.muscle}</span>
-              <div class="bar-track"><div class="bar-fill" style="width:${r.daysSince === Infinity ? 100 : Math.min(100, r.daysSince * 10)}%;background:${MUSCLE_COLORS[r.muscle]}"></div></div>
-              <span class="pill ${rotationColor(r.daysSince)}">${r.daysSince === Infinity ? "Never" : fmtDaysAgo(r.daysSince)}</span>
-            </div>
-          `).join("")}
+          ${rotation.map(rotationItemHTML).join("")}
         </div>
       </div>
     `;
@@ -757,29 +875,31 @@
 
   function exerciseBlock(entry, ei) {
     const v = entry.variation || "";
-    const best = bestSetForVariation(state.sessions, entry.exerciseId, v);
+    const metric = entry.metric || DEFAULT_METRIC;
+    const isStrength = metric === "weight_reps";
+    const best = isStrength ? bestSetForVariation(state.sessions, entry.exerciseId, v) : null;
     const prev = lastEntryForExercise(state.sessions, entry.exerciseId, v);
+    const fields = metricFields(metric);
     return `
       <div class="exercise-block" data-entry="${ei}">
         <div class="ex-title">
-          <strong style="display:flex;align-items:center;gap:8px">${photoThumb(entry.exerciseId, 28)}${entry.exerciseName}${v ? `<span class="variation-tag">${v}</span>` : ""}</strong>
+          <strong style="display:flex;align-items:center;gap:8px">${photoThumb(entry.exerciseId, 28)}${entry.exerciseName}${v ? `<span class="variation-tag">${v}</span>` : ""}${!isStrength ? `<span class="variation-tag">${METRIC_TYPES[metric].label}</span>` : ""}</strong>
           <button class="btn sm danger" data-remove-exercise="${ei}">Remove</button>
         </div>
         <div class="small muted" style="margin-bottom:8px">${entry.muscleGroups.join(", ")}</div>
         ${prev || best ? `
         <div class="ex-stats">
-          ${prev ? `<div class="ex-stat"><span class="ex-stat-label">Last · ${fmtDaysAgo(daysAgo(prev.date))}</span><span class="ex-stat-value">${prev.sets.map((x) => `${x.weight}×${x.reps}`).join(", ")}</span></div>` : ""}
+          ${prev ? `<div class="ex-stat"><span class="ex-stat-label">Last · ${fmtDaysAgo(daysAgo(prev.date))}</span><span class="ex-stat-value">${prev.sets.map((x) => formatSetValue(x, metric)).join(", ")}</span></div>` : ""}
           ${best ? `<div class="ex-stat best"><span class="ex-stat-label">Best</span><span class="ex-stat-value">${best.weight}kg × ${best.reps}</span></div>` : ""}
         </div>` : ""}
         ${entry.sets.map((set, si) => {
-          const orm = estOneRM(set.weight, set.reps);
-          const isPR = best && orm >= best.orm && set.weight > 0;
+          const orm = isStrength ? estOneRM(set.weight, set.reps) : 0;
+          const isPR = isStrength && best && orm >= best.orm && set.weight > 0;
           const ghost = prev && prev.sets[si] ? prev.sets[si] : null;
           return `
-          <div class="set-row">
+          <div class="set-row${fields.length === 1 ? " single" : ""}">
             <span class="idx">${si + 1}</span>
-            <input type="number" inputmode="decimal" placeholder="${ghost && ghost.weight ? ghost.weight : "kg"}" value="${set.weight || ""}" data-set-weight="${ei}:${si}" />
-            <input type="number" inputmode="numeric" placeholder="${ghost && ghost.reps ? ghost.reps : "reps"}" value="${set.reps || ""}" data-set-reps="${ei}:${si}" />
+            ${fields.map((f) => `<input type="number" inputmode="${f.inputMode}" placeholder="${ghost && ghost[f.key] ? ghost[f.key] : f.placeholder}" value="${set[f.key] || ""}" data-set-field="${ei}:${si}:${f.key}" />`).join("")}
             <button class="del" data-remove-set="${ei}:${si}" aria-label="remove set">×</button>
           </div>
           ${isPR && si === entry.sets.length - 1 ? `<div class="small" style="color:var(--accent);margin:-2px 0 6px">Matches/beats your best</div>` : ""}
@@ -840,7 +960,7 @@
       ${grouped[mg].map((ex) => `
         <div class="pick-row" data-pick-exercise="${ex.id}">
           <span style="display:flex;align-items:center;gap:10px">${photoThumb(ex.id, 32)}
-            <span>${ex.name}${ex.variations && ex.variations.length ? `<div class="small muted">${ex.variations.join(" · ")}</div>` : ""}</span>
+            <span>${ex.name}${ex.variations && ex.variations.length ? `<div class="small muted">${ex.variations.join(" · ")}</div>` : ""}${(ex.metric || DEFAULT_METRIC) !== "weight_reps" ? `<div class="small muted">${METRIC_TYPES[ex.metric].label}</div>` : ""}</span>
           </span>
           <span style="display:flex;align-items:center;gap:8px"><span class="small muted">${ex.muscleGroups.join(", ")}</span><span class="chev">›</span></span>
         </div>
@@ -856,7 +976,7 @@
         <button class="btn primary block" id="train-new-exercise-btn">+ New exercise</button>
       `;
     }
-    const groups = MUSCLE_GROUPS.filter((mg) => state.exercises.some((ex) => ex.muscleGroups.includes(mg)));
+    const groups = state.muscleGroups.map((mg) => mg.name).filter((mg) => state.exercises.some((ex) => ex.muscleGroups.includes(mg)));
     return `
       <div class="sheet-title"><h2 style="margin:0">Add exercise</h2><span class="link" data-close-add>Close</span></div>
       <div class="field" style="margin-top:10px">
@@ -937,23 +1057,41 @@
 
   function viewRotationFullInner() {
     const rotation = computeRotation(state.sessions);
-    return rotation.map((r) => `
-      <div class="rotation-item" style="margin-bottom:10px">
-        <span class="small" style="width:78px">${r.muscle}</span>
-        <div class="bar-track"><div class="bar-fill" style="width:${r.daysSince === Infinity ? 100 : Math.min(100, r.daysSince * 10)}%;background:${MUSCLE_COLORS[r.muscle]}"></div></div>
-        <span class="pill ${rotationColor(r.daysSince)}">${r.daysSince === Infinity ? "Never" : fmtDaysAgo(r.daysSince)}</span>
-      </div>
-    `).join("");
+    return rotation.map(rotationItemHTML).join("");
   }
 
   function viewProgressDetail(exId) {
     const ex = state.exercises.find((e) => e.id === exId);
     if (!ex) { state.progressDetail = null; return viewProgress(); }
+    const metric = ex.metric || DEFAULT_METRIC;
+    const photoUrl = state.photoUrls[exId];
+    const photoHTML = photoUrl ? `<img src="${photoUrl}" alt="${ex.name}" style="width:100%;max-height:180px;object-fit:cover;border-radius:12px;margin:8px 0" />` : "";
+
+    if (metric !== "weight_reps") {
+      // Non-strength metrics just log their raw numbers — no Best/PR/1RM (see METRIC_TYPES note above).
+      const field = metricFields(metric)[0];
+      const history = genericSetHistory(state.sessions, exId);
+      return `
+        <div class="view">
+          <button class="btn sm ghost" data-back-progress style="align-self:flex-start">${icon("back")} Back</button>
+          <div class="card">
+            <div class="row" style="align-items:center;margin-bottom:4px"><h2 style="margin:0">${ex.name}</h2></div>
+            ${photoHTML}
+            <div class="small muted" style="margin-bottom:10px">${ex.muscleGroups.join(", ")} · ${METRIC_TYPES[metric].label}</div>
+            ${history.length > 1 ? `<div class="small muted" style="margin-bottom:2px">${field.unit} trend</div>${sparkline(history.map((h) => Number(h.set[field.key]) || 0))}` : ""}
+            ${history.length === 0 ? `<div class="empty">No sets logged for this exercise yet.</div>` :
+              `<div style="margin-top:10px">${history.slice().reverse().map((h) => `
+                <div class="row"><span class="small">${fmtDate(h.date)}</span><span class="small">${formatSetValue(h.set, metric)}</span></div>
+              `).join("")}</div>`}
+          </div>
+        </div>
+      `;
+    }
+
     const history = exerciseHistory(state.sessions, exId); // one best-set-per-session entries, chronological
     const best = history.reduce((m, h) => (!m || h.orm > m.orm ? h : m), null);
     const first = history[0];
     const delta = first && best && first.orm > 0 ? Math.round(((best.orm - first.orm) / first.orm) * 100) : null;
-    const photoUrl = state.photoUrls[exId];
 
     return `
       <div class="view">
@@ -962,7 +1100,7 @@
           <div class="row" style="align-items:center;margin-bottom:4px">
             <h2 style="margin:0">${ex.name}</h2>
           </div>
-          ${photoUrl ? `<img src="${photoUrl}" alt="${ex.name}" style="width:100%;max-height:180px;object-fit:cover;border-radius:12px;margin:8px 0" />` : ""}
+          ${photoHTML}
           <div class="small muted" style="margin-bottom:10px">${ex.muscleGroups.join(", ")}</div>
           <div class="btn-row" style="margin-bottom:12px">
             ${best ? `<span class="pill good">Best: ${best.weight}kg × ${best.reps} (${fmtDate(best.date)})</span>` : ""}
@@ -1155,7 +1293,7 @@
     const latest = overallSeries.length ? Math.round(overallSeries[overallSeries.length - 1].value) : null;
     const delta = latest !== null ? latest - 100 : null;
 
-    const breakdown = MUSCLE_GROUPS.filter((mg) => !NON_STRENGTH_GROUPS.includes(mg)).map((mg) => {
+    const breakdown = state.muscleGroups.map((mg) => mg.name).filter((mg) => !NON_STRENGTH_GROUPS.includes(mg)).map((mg) => {
       const series = byMuscle[mg];
       const d = series && series.length ? Math.round(series[series.length - 1].value - 100) : null;
       return { mg, delta: d };
@@ -1277,6 +1415,29 @@
         </div>
 
         <div class="card">
+          <h2>Muscle groups</h2>
+          <div class="small muted" style="margin-bottom:8px">Pick which muscle groups you want to track and how many times per week you're aiming to train each. Rotation and the Strength Index are both built from this list.</div>
+          ${state.muscleGroups.length === 0 ? `<div class="empty">No muscle groups yet — add your first below.</div>` : `
+          <div style="margin-bottom:12px">
+            ${state.muscleGroups.map((mg) => `
+              <div class="row" style="align-items:center">
+                <span style="display:flex;align-items:center;gap:8px"><span style="width:10px;height:10px;border-radius:50%;background:${mg.color};display:inline-block;flex-shrink:0"></span>${mg.name}</span>
+                <span style="display:flex;align-items:center;gap:8px">
+                  <input type="number" inputmode="numeric" min="1" max="14" value="${mg.frequency}" data-muscle-freq="${mg.id}" style="width:56px" />
+                  <span class="small muted">x/wk</span>
+                  <button class="btn sm danger" data-del-muscle="${mg.id}">Delete</button>
+                </span>
+              </div>
+            `).join("")}
+          </div>`}
+          <div class="row" style="gap:6px">
+            <input type="text" id="new-muscle-name" placeholder="e.g. Forearms" style="flex:1" />
+            <input type="number" inputmode="numeric" id="new-muscle-freq" placeholder="x/wk" value="2" min="1" max="14" style="width:64px" />
+            <button class="btn primary sm" id="add-muscle-btn">Add</button>
+          </div>
+        </div>
+
+        <div class="card">
           <h2>Exercise library</h2>
           <div class="small muted" style="margin-bottom:8px">Your own library — each exercise has muscle groups, optional variations (attachments, grips, one/two-handed) and an optional photo. Variations track their own last-time and best numbers.</div>
           ${state.exercises.length === 0 ? `<div class="empty">No exercises yet — add your first below.</div>` : `
@@ -1285,7 +1446,7 @@
               <div class="row">
                 <div style="display:flex;align-items:center;gap:10px">
                   ${photoThumb(ex.id, 38)}
-                  <div><div>${ex.name}</div><div class="small muted">${ex.muscleGroups.join(", ")}${ex.variations && ex.variations.length ? ` · ${ex.variations.join(" / ")}` : ""}</div></div>
+                  <div><div>${ex.name}</div><div class="small muted">${ex.muscleGroups.join(", ")}${ex.variations && ex.variations.length ? ` · ${ex.variations.join(" / ")}` : ""}${(ex.metric || DEFAULT_METRIC) !== "weight_reps" ? ` · ${METRIC_TYPES[ex.metric].label}` : ""}</div></div>
                 </div>
                 <div class="btn-row">
                   <button class="btn sm ghost" data-edit-exercise="${ex.id}">Edit</button>
@@ -1330,10 +1491,17 @@
           <input type="text" id="new-exercise-name" placeholder="e.g. Tricep Pushdown" value="${formNameValue.replace(/"/g, "&quot;")}" />
         </div>
         <div class="field">
-          <label>Muscle group(s)</label>
-          <div class="chip-row" id="new-exercise-muscles">
-            ${MUSCLE_GROUPS.map((mg) => `<span class="chip${selectedMuscles.includes(mg) ? " selected" : ""}" data-muscle="${mg}">${mg}</span>`).join("")}
+          <label>Track by</label>
+          <div class="chip-row" id="new-exercise-metric">
+            ${Object.keys(METRIC_TYPES).map((key) => `<span class="chip${formMetric === key ? " selected" : ""}" data-metric="${key}">${METRIC_TYPES[key].label}</span>`).join("")}
           </div>
+        </div>
+        <div class="field">
+          <label>Muscle group(s)</label>
+          ${state.muscleGroups.length === 0 ? `<div class="small muted">No muscle groups yet — add some in Settings first.</div>` : `
+          <div class="chip-row" id="new-exercise-muscles">
+            ${state.muscleGroups.map((mg) => `<span class="chip${selectedMuscles.includes(mg.name) ? " selected" : ""}" data-muscle="${mg.name}">${mg.name}</span>`).join("")}
+          </div>`}
         </div>
         <div class="field">
           <label>Variations (optional) — attachments, grips, one/two-handed…</label>
@@ -1401,6 +1569,7 @@
   let editingExerciseId = null;     // exercise being edited in Settings (null = adding new)
   let formNameValue = "";           // preserved across form re-renders
   let formVariations = [];          // variations list being built in the form
+  let formMetric = DEFAULT_METRIC;  // metric type being built in the form
   let pendingPhotoFile = null;      // photo picked in the form, saved on submit
   let pendingPhotoUrl = null;       // object URL for previewing pendingPhotoFile
 
@@ -1408,6 +1577,7 @@
     selectedMuscles = [];
     formVariations = [];
     formNameValue = "";
+    formMetric = DEFAULT_METRIC;
     editingExerciseId = null;
     pendingPhotoFile = null;
     if (pendingPhotoUrl) { URL.revokeObjectURL(pendingPhotoUrl); pendingPhotoUrl = null; }
@@ -1509,7 +1679,7 @@
       if (state.activeSession.entries.length === 0) { toast("Add at least one exercise first"); return; }
       // clean empty sets
       state.activeSession.entries.forEach((entry) => {
-        entry.sets = entry.sets.filter((s) => s.weight || s.reps);
+        entry.sets = entry.sets.filter((s) => Object.values(s).some((v) => v));
       });
       state.activeSession.endedAt = Date.now();
       stopRest(true);
@@ -1581,18 +1751,47 @@
     if (addSet) {
       // Duplicate the previous set's values — most sets repeat, so this
       // saves typing; just edit if the numbers change.
-      const sets = state.activeSession.entries[Number(addSet.dataset.addSet)].sets;
-      const last = sets[sets.length - 1];
-      sets.push({ weight: (last && last.weight) || "", reps: (last && last.reps) || "" });
+      const entry = state.activeSession.entries[Number(addSet.dataset.addSet)];
+      const metric = entry.metric || DEFAULT_METRIC;
+      const last = entry.sets[entry.sets.length - 1];
+      const copy = emptySet(metric);
+      if (last) metricFields(metric).forEach((f) => { copy[f.key] = last[f.key] || ""; });
+      entry.sets.push(copy);
       render();
       return;
     }
     const remSet = t.closest("[data-remove-set]");
     if (remSet) {
       const [ei, si] = remSet.dataset.removeSet.split(":").map(Number);
-      state.activeSession.entries[ei].sets.splice(si, 1);
-      if (state.activeSession.entries[ei].sets.length === 0) state.activeSession.entries[ei].sets.push({ weight: "", reps: "" });
+      const entry = state.activeSession.entries[ei];
+      entry.sets.splice(si, 1);
+      if (entry.sets.length === 0) entry.sets.push(emptySet(entry.metric || DEFAULT_METRIC));
       render();
+      return;
+    }
+
+    // Settings: muscle groups
+    if (t.id === "add-muscle-btn") {
+      const nameInput = document.getElementById("new-muscle-name");
+      const freqInput = document.getElementById("new-muscle-freq");
+      const name = nameInput.value.trim();
+      const frequency = Math.max(1, Number(freqInput.value) || DEFAULT_FREQUENCY);
+      if (!name) { toast("Enter a muscle group name"); return; }
+      if (state.muscleGroups.some((mg) => mg.name.toLowerCase() === name.toLowerCase())) { toast("Already in your list"); return; }
+      await Repo.addMuscleGroup(name, frequency);
+      state.muscleGroups = await Repo.listMuscleGroups();
+      render();
+      toast("Muscle group added");
+      return;
+    }
+    const delMuscle = t.closest("[data-del-muscle]");
+    if (delMuscle) {
+      const mg = state.muscleGroups.find((m) => m.id === delMuscle.dataset.delMuscle);
+      if (mg && confirm(`Delete "${mg.name}"? Exercises already tagged with it keep the tag, but it won't be offered for new ones.`)) {
+        await Repo.deleteMuscleGroup(mg.id);
+        state.muscleGroups = await Repo.listMuscleGroups();
+        render();
+      }
       return;
     }
 
@@ -1612,6 +1811,7 @@
         formNameValue = ex.name;
         selectedMuscles = ex.muscleGroups.slice();
         formVariations = (ex.variations || []).slice();
+        formMetric = ex.metric || DEFAULT_METRIC;
         customExerciseOpen = true;
         renderSettingsExtra();
         document.getElementById("custom-exercise-form").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1644,6 +1844,12 @@
       muscleChip.classList.toggle("selected");
       return;
     }
+    const metricChip = t.closest("[data-metric]");
+    if (metricChip && document.getElementById("new-exercise-metric")) {
+      formMetric = metricChip.dataset.metric;
+      metricChip.parentElement.querySelectorAll(".chip").forEach((c) => c.classList.toggle("selected", c.dataset.metric === formMetric));
+      return;
+    }
     if (t.id === "save-new-exercise") {
       const name = document.getElementById("new-exercise-name").value.trim();
       if (!name) { toast("Enter an exercise name"); return; }
@@ -1652,11 +1858,11 @@
       if (editingExerciseId) {
         const existing = state.exercises.find((x) => x.id === editingExerciseId);
         await Repo.updateExercise(Object.assign({}, existing, {
-          name, muscleGroups: selectedMuscles.slice(), variations: formVariations.slice()
+          name, muscleGroups: selectedMuscles.slice(), variations: formVariations.slice(), metric: formMetric
         }));
         exerciseId = editingExerciseId;
       } else {
-        exerciseId = await Repo.addExercise(name, selectedMuscles.slice(), formVariations.slice());
+        exerciseId = await Repo.addExercise(name, selectedMuscles.slice(), formVariations.slice(), formMetric);
       }
       if (pendingPhotoFile) {
         try {
@@ -1743,6 +1949,16 @@
   // input listeners (change, not click) — set weight/reps and file import
   appEl.addEventListener("change", async (e) => {
     const t = e.target;
+    const freqInput = t.closest("[data-muscle-freq]");
+    if (freqInput) {
+      const mg = state.muscleGroups.find((m) => m.id === freqInput.dataset.muscleFreq);
+      const frequency = Math.max(1, Number(freqInput.value) || DEFAULT_FREQUENCY);
+      if (mg) {
+        await Repo.updateMuscleGroup(Object.assign({}, mg, { frequency }));
+        state.muscleGroups = await Repo.listMuscleGroups();
+      }
+      return;
+    }
     if (t.id === "import-file-input" && t.files[0]) {
       const text = await t.files[0].text();
       try {
@@ -1778,16 +1994,10 @@
       }
       return;
     }
-    const w = t.closest("[data-set-weight]");
-    if (w) {
-      const [ei, si] = w.dataset.setWeight.split(":").map(Number);
-      state.activeSession.entries[ei].sets[si].weight = Number(t.value) || "";
-      return;
-    }
-    const r = t.closest("[data-set-reps]");
-    if (r) {
-      const [ei, si] = r.dataset.setReps.split(":").map(Number);
-      state.activeSession.entries[ei].sets[si].reps = Number(t.value) || "";
+    const setField = t.closest("[data-set-field]");
+    if (setField) {
+      const [ei, si, key] = setField.dataset.setField.split(":");
+      state.activeSession.entries[Number(ei)].sets[Number(si)][key] = Number(t.value) || "";
       return;
     }
   });
@@ -1802,9 +2012,10 @@
   });
 
   function addEntryToSession(ex, variation) {
+    const metric = ex.metric || DEFAULT_METRIC;
     state.activeSession.entries.push({
       exerciseId: ex.id, exerciseName: ex.name, muscleGroups: ex.muscleGroups,
-      variation: variation || "", sets: [{ weight: "", reps: "" }]
+      variation: variation || "", metric, sets: [emptySet(metric)]
     });
     addExerciseOpen = false;
     pickingVariationFor = null;

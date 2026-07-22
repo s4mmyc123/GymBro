@@ -367,6 +367,9 @@ label {
   align-items: center;
   margin-bottom: 6px;
 }
+.set-row.single {
+  grid-template-columns: 28px 1fr 32px;
+}
 .set-row .idx {
   color: var(--text-dim);
   font-size: 12px;
