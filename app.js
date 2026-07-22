@@ -668,6 +668,7 @@
     protein: [],
     proteinGoal: 150,
     bodyweight: [],
+    weightGoal: null,    // target body weight (kg) — drawn as a horizontal line on the chart
     muscleGroups: [],
     weightRange: "2w",   // defaults to 2 weeks, per WEIGHT_RANGES above
     photoUrls: {},       // exerciseId -> object URL for its photo (if any)
@@ -691,14 +692,15 @@
   }
 
   async function loadAll() {
-    const [exercises, sessions, protein, proteinGoal, bodyweight, muscleGroups] = await Promise.all([
-      Repo.listExercises(), Repo.listSessions(), Repo.listProtein(), Repo.getSetting("proteinGoal", 150), Repo.listBodyweight(), Repo.listMuscleGroups()
+    const [exercises, sessions, protein, proteinGoal, bodyweight, weightGoal, muscleGroups] = await Promise.all([
+      Repo.listExercises(), Repo.listSessions(), Repo.listProtein(), Repo.getSetting("proteinGoal", 150), Repo.listBodyweight(), Repo.getSetting("weightGoal", null), Repo.listMuscleGroups()
     ]);
     state.exercises = exercises;
     state.sessions = sessions;
     state.protein = protein;
     state.proteinGoal = proteinGoal;
     state.bodyweight = bodyweight;
+    state.weightGoal = weightGoal;
     state.muscleGroups = muscleGroups;
     await refreshPhotoUrls();
   }
@@ -761,7 +763,7 @@
         <div class="card">
           <h2>This week</h2>
           ${weekDotsHTML()}
-          <button class="btn primary block" data-nav="train" style="margin-top:10px">Start Workout</button>
+          <button class="btn success block" data-nav="train" style="margin-top:10px">Start Workout</button>
         </div>
 
         <div class="card">
@@ -890,7 +892,7 @@
         ${prev || best ? `
         <div class="ex-stats">
           ${prev ? `<div class="ex-stat"><span class="ex-stat-label">Last · ${fmtDaysAgo(daysAgo(prev.date))}</span><span class="ex-stat-value">${prev.sets.map((x) => formatSetValue(x, metric)).join(", ")}</span></div>` : ""}
-          ${best ? `<div class="ex-stat best"><span class="ex-stat-label">Best</span><span class="ex-stat-value">${best.weight}kg × ${best.reps}</span></div>` : ""}
+          ${best ? `<div class="ex-stat best"><span class="ex-stat-label">Best</span><span class="ex-stat-value">${best.weight}kg × ${best.reps} <span class="muted">(~${Math.round(best.orm)}kg 1RM)</span></span></div>` : ""}
         </div>` : ""}
         ${entry.sets.map((set, si) => {
           const orm = isStrength ? estOneRM(set.weight, set.reps) : 0;
@@ -1036,7 +1038,7 @@
             prs.map((pr) => `
               <div class="row list-tap" data-view-exercise="${pr.exerciseId}">
                 <span style="display:flex;align-items:center;gap:8px">${photoThumb(pr.exerciseId)}<span>${pr.exerciseName}<div class="small muted">${fmtDate(pr.date)}</div></span></span>
-                <span class="pill good">${pr.weight}kg × ${pr.reps}</span>
+                <span class="pill good">${pr.weight}kg × ${pr.reps} <span class="muted">(~${Math.round(pr.orm)}kg 1RM)</span></span>
               </div>
             `).join("")}
         </div>
@@ -1047,7 +1049,7 @@
             used.sort((a, b) => a.name.localeCompare(b.name)).map((ex) => `
               <div class="row list-tap" data-view-exercise="${ex.id}">
                 <span style="display:flex;align-items:center;gap:8px">${photoThumb(ex.id)}${ex.name}</span>
-                <span class="pill good">${best[ex.id].weight}kg × ${best[ex.id].reps}</span>
+                <span class="pill good">${best[ex.id].weight}kg × ${best[ex.id].reps} <span class="muted">(~${Math.round(best[ex.id].orm)}kg 1RM)</span></span>
               </div>
             `).join("")}
         </div>
@@ -1103,7 +1105,7 @@
           ${photoHTML}
           <div class="small muted" style="margin-bottom:10px">${ex.muscleGroups.join(", ")}</div>
           <div class="btn-row" style="margin-bottom:12px">
-            ${best ? `<span class="pill good">Best: ${best.weight}kg × ${best.reps} (${fmtDate(best.date)})</span>` : ""}
+            ${best ? `<span class="pill good">Best: ${best.weight}kg × ${best.reps} <span class="muted">(~${Math.round(best.orm)}kg 1RM)</span> · ${fmtDate(best.date)}</span>` : ""}
             ${delta !== null ? `<span class="pill ${delta >= 0 ? "good" : "bad"}">${delta >= 0 ? "+" : ""}${delta}% since first log</span>` : ""}
           </div>
           ${history.length > 1 ? `<div class="small muted" style="margin-bottom:2px">Estimated 1RM trend</div>${sparkline(history.map((h) => h.orm))}` : ""}
@@ -1199,10 +1201,11 @@
   // Stock-app-style area chart: gradient fill under the line, gridlines with
   // value labels, a marker on the latest point, and a few date labels along
   // the bottom rather than one per data point.
-  function weightAreaChart(points) {
+  function weightAreaChart(points, goal) {
     const w = 320, h = 170, padX = 6, padTop = 16, padBottom = 22;
     const values = points.map((p) => p.weight);
-    const rawMin = Math.min(...values), rawMax = Math.max(...values);
+    const scaleValues = goal ? values.concat([goal]) : values;
+    const rawMin = Math.min(...scaleValues), rawMax = Math.max(...scaleValues);
     const span = rawMax - rawMin || 1;
     const pad = span * 0.2 || 1;
     const min = rawMin - pad, max = rawMax + pad;
@@ -1229,6 +1232,11 @@
 
     const last = points[points.length - 1];
 
+    const goalLine = goal ? `
+      <line x1="${padX}" y1="${yAt(goal)}" x2="${w - padX}" y2="${yAt(goal)}" stroke="var(--good)" stroke-width="1.5" stroke-dasharray="4 3"/>
+      <text x="${w - padX}" y="${yAt(goal) - 4}" font-size="9" fill="var(--good)" text-anchor="end">Goal · ${goal}kg</text>
+    ` : "";
+
     return `
       <svg viewBox="0 0 ${w} ${h}" style="width:100%;height:${h}px;display:block">
         <defs>
@@ -1241,6 +1249,7 @@
         <polygon points="${areaPts}" fill="url(#weightGradient)" stroke="none"/>
         <polyline points="${linePts}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
         <circle cx="${xAt(points.length - 1)}" cy="${yAt(last.weight)}" r="3.5" fill="var(--accent)"/>
+        ${goalLine}
         ${xLabels}
       </svg>
     `;
@@ -1270,8 +1279,15 @@
               <button class="btn primary sm" id="save-bodyweight">${todayEntry ? "Update" : "Log"}</button>
             </div>
           </div>
+          <div class="row" style="margin:10px 0;align-items:center">
+            <span class="small muted">${state.weightGoal ? `Goal: ${state.weightGoal}kg${latest ? ` · ${Math.abs(Math.round((latest.weight - state.weightGoal) * 10) / 10)}kg to go` : ""}` : "No goal weight set"}</span>
+            <div style="display:flex;gap:6px;align-items:center">
+              <input type="number" inputmode="decimal" step="0.1" id="weight-goal-input" placeholder="goal kg" value="${state.weightGoal || ""}" style="width:88px" />
+              <button class="btn sm" id="save-weight-goal">Save</button>
+            </div>
+          </div>
           ${rangeSelectorHTML(state.weightRange)}
-          ${filtered.length > 1 ? weightAreaChart(filtered) :
+          ${filtered.length > 1 ? weightAreaChart(filtered, state.weightGoal) :
             filtered.length === 1 ? `<div class="empty">Only one weigh-in in this range — widen the range or log again tomorrow.</div>` :
             `<div class="empty">No weigh-ins in this range yet.</div>`}
         </div>
@@ -1649,6 +1665,24 @@
         state.bodyweight = await Repo.listBodyweight();
         render();
         toast("Weight logged");
+      }
+      return;
+    }
+    if (t.id === "save-weight-goal") {
+      const raw = document.getElementById("weight-goal-input").value.trim();
+      if (raw === "") {
+        await Repo.setSetting("weightGoal", null);
+        state.weightGoal = null;
+        render();
+        toast("Goal cleared");
+        return;
+      }
+      const val = Number(raw);
+      if (val > 0) {
+        await Repo.setSetting("weightGoal", val);
+        state.weightGoal = val;
+        render();
+        toast("Goal updated");
       }
       return;
     }

@@ -160,6 +160,13 @@ html, body {
   border: none;
 }
 
+.btn.success:active { box-shadow: 0 0 0 4px rgba(34,197,94,0.18); }
+.btn.success {
+  background: var(--good);
+  color: #052e12;
+  border: none;
+}
+
 .btn.ghost {
   background: transparent;
   border: 1px dashed var(--border);
