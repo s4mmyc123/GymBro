@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+<title>We Go Gym</title>
+<meta name="description" content="Simple gym session, lift, muscle rotation and protein tracker" />
+
+<!-- PWA / installable app metadata -->
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#0f172a" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="We Go Gym" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<link rel="icon" href="icons/icon-192.png" />
+
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<div id="app"></div>
+
+<!-- Toast container -->
+<div id="toast" class="toast" aria-live="polite"></div>
+
+<!-- Rest timer pill (controlled by app.js, tap to cancel) -->
+<div id="rest-timer" class="rest-timer" role="timer" aria-live="polite"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
