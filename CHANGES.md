@@ -315,3 +315,16 @@ rows in Settings, Train, and the picker wrap rather than widening the page.
 - Invalid records hidden by the normaliser stay in the database untouched.
 - A half-filled set (reps but no weight) is still saved and counted in
   "sets logged"; it is excluded from bests and PRs. Pre-existing behaviour.
+
+## 9. Strength Index baseline (your call from section 6)
+
+Each exercise variation now has its own series, and its baseline is the
+strongest estimated 1RM among its first two logged days rather than the
+first day alone. A cautious first session no longer inflates every later
+percentage, and a rope pushdown is measured against rope history rather
+than the straight bar's. The overall index and the per-muscle rows average
+those per-variation series. A lift still needs two days of history to
+count, so on its second day a lift sits at or below 100 and moves from
+there. The card text and the README paragraph describe the new rule. The
+"+X% since first log" pill on an exercise's detail screen is unchanged: it
+is a different, literal figure.

@@ -673,12 +673,15 @@
   // or a morning and evening session) and summing the volume. Rows per entry
   // drew a false dip whenever the lighter one happened to be logged second,
   // and two rows on one date collapsed to a single point in the Strength Index.
-  function exerciseHistory(sessions, exerciseId) {
+  // Pass a variation ("" = Standard) to restrict to that variation; omit it
+  // for the exercise as a whole.
+  function exerciseHistory(sessions, exerciseId, variation) {
     const byDay = {};
     const order = [];
     for (const s of chronological(sessions)) {
       for (const entry of s.entries) {
         if (entry.exerciseId !== exerciseId) continue;
+        if (variation !== undefined && (entry.variation || "") !== variation) continue;
         for (const set of entry.sets) {
           if (!isLiftSet(set)) continue;
           let row = byDay[s.date];
@@ -747,21 +750,38 @@
   // -----------------------------------------------------------------------
   // Strength Index — a single relative-progress number, since exercises use
   // wildly different absolute weights (a 40kg curl and a 140kg squat) and
-  // can't be summed directly. Each exercise's own best-estimated-1RM history
-  // is normalized to "% of its own first logged value" (so every exercise
-  // starts at 100), then those normalized series are averaged together —
-  // across all exercises for the overall index, or across only the
-  // exercises tagged to one muscle group for that group's index. A rising
-  // number means you're moving more weight than when you started tracking,
-  // regardless of which specific lifts drove it.
+  // can't be summed directly. Each exercise *variation* (rope vs. bar
+  // pushdowns are different lifts) gets its own best-estimated-1RM history,
+  // one point per day, normalized to "% of its baseline" — the strongest of
+  // its first two logged days, so a tentative first session doesn't set an
+  // artificially low bar. Those normalized series are averaged together:
+  // across every lift for the overall index, or across the lifts tagged to
+  // one muscle group for that group's index. A rising number means you're
+  // moving more weight than when you started tracking, regardless of which
+  // specific lifts drove it.
   // -----------------------------------------------------------------------
-  function normalizedExerciseSeries(sessions, exerciseId) {
-    const history = exerciseHistory(sessions, exerciseId);
+  const BASELINE_DAYS = 2; // how many of a lift's first days set its baseline
+
+  function normalizedSeries(history) {
     // A lift logged on a single day has no trend yet — it would only sit at
-    // 100 forever and drag the average toward "no change".
-    if (history.length < 2 || !history[0].orm) return [];
-    const base = history[0].orm;
+    // its baseline forever and drag the average toward "no change".
+    if (history.length < 2) return [];
+    const base = Math.max(...history.slice(0, BASELINE_DAYS).map((h) => h.orm));
+    if (!base) return [];
     return history.map((h) => ({ date: h.date, value: (h.orm / base) * 100 }));
+  }
+
+  // One normalized series per variation of the exercise that has lift history.
+  function exerciseVariationSeries(sessions, exerciseId) {
+    const variations = new Set();
+    for (const s of sessions) {
+      for (const entry of s.entries) {
+        if (entry.exerciseId === exerciseId && entry.sets.some(isLiftSet)) variations.add(entry.variation || "");
+      }
+    }
+    return Array.from(variations)
+      .map((v) => normalizedSeries(exerciseHistory(sessions, exerciseId, v)))
+      .filter((series) => series.length > 0);
   }
 
   // Averages multiple {date,value} series into one timeline, carrying each
@@ -794,9 +814,11 @@
   function computeStrengthIndex(sessions, exercises) {
     const strengthExercises = exercises.filter(isStrengthExercise);
 
-    const overallSeries = mergeSeriesAverage(
-      strengthExercises.map((ex) => normalizedExerciseSeries(sessions, ex.id)).filter((s) => s.length > 0)
-    );
+    // Series are computed once per exercise and reused for each muscle group
+    const seriesByExercise = {};
+    for (const ex of strengthExercises) seriesByExercise[ex.id] = exerciseVariationSeries(sessions, ex.id);
+
+    const overallSeries = mergeSeriesAverage(strengthExercises.flatMap((ex) => seriesByExercise[ex.id]));
 
     const byMuscle = {};
     for (const mgObj of state.muscleGroups) {
@@ -804,8 +826,7 @@
       if (NON_STRENGTH_GROUPS.includes(mg)) continue;
       const series = strengthExercises
         .filter((ex) => ex.muscleGroups.includes(mg))
-        .map((ex) => normalizedExerciseSeries(sessions, ex.id))
-        .filter((s) => s.length > 0);
+        .flatMap((ex) => seriesByExercise[ex.id]);
       byMuscle[mg] = series.length > 0 ? mergeSeriesAverage(series) : null;
     }
     return { overallSeries, byMuscle };
@@ -1720,7 +1741,7 @@
 
     return `
       <h2>Strength Index</h2>
-      <div class="small muted" style="margin-bottom:10px">A rough "are you moving more weight than when you started" score — averages each lift's growth vs. its own first logged set, so exercises at very different weights can be compared fairly.</div>
+      <div class="small muted" style="margin-bottom:10px">A rough "are you moving more weight than when you started" score — averages each lift's growth vs. its own baseline (the best of its first two days, per variation), so exercises at very different weights can be compared fairly.</div>
       ${latest === null ? `<div class="empty">Log a couple of sessions for the same lifts to start seeing this.</div>` : `
         <div class="row" style="align-items:flex-end;margin-bottom:10px">
           <div>
