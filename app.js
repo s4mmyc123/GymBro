@@ -41,6 +41,8 @@
   const SET_VALUE_MAX = 10000;   // kg, reps, minutes or km per set
   const PROTEIN_MAX = 5000;      // grams per entry, and for the daily goal
   const BODYWEIGHT_MAX = 1000;   // kg, for weigh-ins and the goal
+  const NAME_MAX = 60;           // exercise names (input maxlength; imports are cut to match)
+  const TAG_MAX = 30;            // muscle group and variation names
 
   // Muscle groups that aren't about lifting heavier over time — excluded from the Strength Index.
   const NON_STRENGTH_GROUPS = ["Cardio"];
@@ -256,9 +258,9 @@
     function normalizeExercise(ex) {
       if (!ex || !isStr(ex.id) || !isStr(ex.name)) return null;
       return Object.assign({}, ex, {
-        name: ex.name.trim(),
-        muscleGroups: Array.isArray(ex.muscleGroups) ? ex.muscleGroups.filter(isStr) : [],
-        variations: Array.isArray(ex.variations) ? ex.variations.filter(isStr) : [],
+        name: ex.name.trim().slice(0, NAME_MAX),
+        muscleGroups: Array.isArray(ex.muscleGroups) ? ex.muscleGroups.filter(isStr).map((m) => m.trim().slice(0, TAG_MAX)) : [],
+        variations: Array.isArray(ex.variations) ? ex.variations.filter(isStr).map((v) => v.trim().slice(0, TAG_MAX)) : [],
         metric: METRIC_TYPES[ex.metric] ? ex.metric : DEFAULT_METRIC
       });
     }
@@ -280,9 +282,9 @@
         .map((x) => normalizeSet(x, metric))
         .filter((x) => Object.values(x).some((v) => v));
       return Object.assign({}, entry, {
-        exerciseName: isStr(entry.exerciseName) ? entry.exerciseName : "Unknown exercise",
-        muscleGroups: Array.isArray(entry.muscleGroups) ? entry.muscleGroups.filter(isStr) : [],
-        variation: isStr(entry.variation) ? entry.variation : "",
+        exerciseName: isStr(entry.exerciseName) ? entry.exerciseName.trim().slice(0, NAME_MAX) : "Unknown exercise",
+        muscleGroups: Array.isArray(entry.muscleGroups) ? entry.muscleGroups.filter(isStr).map((m) => m.trim().slice(0, TAG_MAX)) : [],
+        variation: isStr(entry.variation) ? entry.variation.trim().slice(0, TAG_MAX) : "",
         metric, sets
       });
     }
@@ -302,7 +304,7 @@
       if (!mg || !isStr(mg.id) || !isStr(mg.name)) return null;
       const freq = Math.round(Number(mg.frequency));
       return Object.assign({}, mg, {
-        name: mg.name.trim(),
+        name: mg.name.trim().slice(0, TAG_MAX),
         frequency: Number.isFinite(freq) ? Math.min(FREQUENCY_MAX, Math.max(1, freq)) : DEFAULT_FREQUENCY,
         color: /^#[0-9a-f]{6}$/i.test(String(mg.color || "")) ? mg.color : MUSCLE_COLOR_PALETTE[index % MUSCLE_COLOR_PALETTE.length]
       });
@@ -414,21 +416,35 @@
         const bodyweight = arr("bodyweight").map(normalizeBodyweight).filter(Boolean);
         const settings = arr("settings")
           .filter((x) => x && isStr(x.key) && SETTING_VALID[x.key] && SETTING_VALID[x.key](x.value))
-          .map((x) => ({ key: x.key, value: x.value }));
+          // "200" in a hand-edited file is accepted, but stored as the number 200
+          .map((x) => ({ key: x.key, value: typeof x.value === "string" ? Number(x.value) : x.value }));
 
-        const existingGroups = await getAll("muscleGroups");
-        const seenNames = new Set(existingGroups.map((m) => String(m.name || "").toLowerCase()));
+        // Muscle groups match by name (case-insensitive). A match keeps the
+        // existing record's id (exercises reference groups by name, so ids
+        // don't matter) but takes the backup's frequency and colour — the
+        // re-seeded defaults after an Erase must not win over your settings.
+        const existingByName = {};
+        for (const m of (await getAll("muscleGroups")).map(normalizeMuscleGroup).filter(Boolean)) existingByName[m.name.toLowerCase()] = m;
         const muscleGroups = [];
-        let skippedGroups = 0;
+        let updatedGroups = 0;
         arr("muscleGroups").map(normalizeMuscleGroup).filter(Boolean).forEach((m) => {
           const key = m.name.toLowerCase();
-          if (seenNames.has(key)) { skippedGroups++; return; }
-          seenNames.add(key);
-          muscleGroups.push(m);
+          const current = existingByName[key];
+          if (current) {
+            if (current.frequency !== m.frequency || current.color !== m.color) {
+              muscleGroups.push(Object.assign({}, current, { frequency: m.frequency, color: m.color }));
+              updatedGroups++;
+            }
+          } else {
+            muscleGroups.push(m);
+          }
+          existingByName[key] = muscleGroups[muscleGroups.length - 1] || current;
         });
 
+        // Photos only for exercises that will exist after the import
+        const knownExercise = new Set((await getAll("exercises")).map((e) => e.id).concat(exercises.map((e) => e.id)));
         const photos = await Promise.all(arr("photos")
-          .filter((ph) => ph && isStr(ph.exerciseId) && typeof ph.dataUrl === "string" && ph.dataUrl.startsWith("data:image/"))
+          .filter((ph) => ph && isStr(ph.exerciseId) && knownExercise.has(ph.exerciseId) && typeof ph.dataUrl === "string" && ph.dataUrl.startsWith("data:image/"))
           .map(async (ph) => ({ exerciseId: ph.exerciseId, blob: await (await fetch(ph.dataUrl)).blob() })));
 
         const db = await open();
@@ -442,7 +458,7 @@
           write("settings", settings); write("bodyweight", bodyweight); write("muscleGroups", muscleGroups);
           write("photos", photos);
         });
-        return { exercises: exercises.length, sessions: sessions.length, protein: protein.length, bodyweight: bodyweight.length, muscleGroups: muscleGroups.length, skippedGroups, photos: photos.length };
+        return { exercises: exercises.length, sessions: sessions.length, protein: protein.length, bodyweight: bodyweight.length, muscleGroups: muscleGroups.length - updatedGroups, updatedGroups, photos: photos.length, settings: settings.length };
       },
       async clearAll() {
         const db = await open();
@@ -652,26 +668,28 @@
   }
 
   // Chronological history (weight/reps/1RM/volume) for one exercise: one row
-  // per *session*, taking the best set across every entry of that exercise
-  // in it (an exercise can appear twice — e.g. two variations) and summing
-  // the volume. One row per entry would draw a false dip whenever the
-  // lighter variation happened to be logged second.
+  // per calendar *day*, taking the best set across every entry and session
+  // of that exercise on it (an exercise can appear twice — two variations,
+  // or a morning and evening session) and summing the volume. Rows per entry
+  // drew a false dip whenever the lighter one happened to be logged second,
+  // and two rows on one date collapsed to a single point in the Strength Index.
   function exerciseHistory(sessions, exerciseId) {
-    const history = [];
+    const byDay = {};
+    const order = [];
     for (const s of chronological(sessions)) {
-      let volume = 0, bestOrm = 0, bestSet = null;
       for (const entry of s.entries) {
         if (entry.exerciseId !== exerciseId) continue;
         for (const set of entry.sets) {
           if (!isLiftSet(set)) continue;
-          volume += set.weight * set.reps;
+          let row = byDay[s.date];
+          if (!row) { row = byDay[s.date] = { date: s.date, weight: 0, reps: 0, orm: 0, volume: 0 }; order.push(row); }
+          row.volume += set.weight * set.reps;
           const orm = estOneRM(set.weight, set.reps);
-          if (orm > bestOrm) { bestOrm = orm; bestSet = set; }
+          if (orm > row.orm) { row.orm = orm; row.weight = set.weight; row.reps = set.reps; }
         }
       }
-      if (bestSet) history.push({ date: s.date, weight: bestSet.weight, reps: bestSet.reps, orm: bestOrm, volume });
     }
-    return history;
+    return order;
   }
 
   // Flat, chronological log of every set for a non-weight_reps exercise
@@ -739,7 +757,9 @@
   // -----------------------------------------------------------------------
   function normalizedExerciseSeries(sessions, exerciseId) {
     const history = exerciseHistory(sessions, exerciseId);
-    if (history.length === 0 || !history[0].orm) return [];
+    // A lift logged on a single day has no trend yet — it would only sit at
+    // 100 forever and drag the average toward "no change".
+    if (history.length < 2 || !history[0].orm) return [];
     const base = history[0].orm;
     return history.map((h) => ({ date: h.date, value: (h.orm / base) * 100 }));
   }
@@ -991,18 +1011,20 @@
 
   // Set inputs update state on every keystroke (input) as well as on blur
   // (change) so the draft above is never more than one character behind.
-  // Returns false when the typed value was non-empty but unusable (negative,
-  // zero, absurd) so the change handler can clear it and say why.
+  // Returns a message when the typed value was non-empty but unusable
+  // (negative, zero, absurd) so the change handler can clear it and say why;
+  // an empty string means the value was fine.
   function applySetField(input) {
-    if (!state.activeSession) return true;
+    if (!state.activeSession) return "";
     const [ei, si, key] = input.dataset.setField.split(":");
     const entry = state.activeSession.entries[Number(ei)];
     const set = entry && entry.sets[Number(si)];
-    if (!set) return true;
+    if (!set) return "";
     const raw = input.value.trim();
     const n = Number(raw);
     const valid = raw !== "" && Number.isFinite(n) && n > 0 && n <= SET_VALUE_MAX;
     set[key] = valid ? n : "";
+    const problem = valid || raw === "" ? "" : (Number.isFinite(n) && n > SET_VALUE_MAX ? `Sets can't be more than ${SET_VALUE_MAX}` : "Sets need a positive number");
     persistActiveSession();
     // Refresh just this set's "beats your best" line — a full render here
     // would steal focus from the input mid-typing.
@@ -1012,7 +1034,7 @@
         ? bestSetForVariation(state.sessions, entry.exerciseId, entry.variation || "") : null;
       holder.innerHTML = setHintHTML(set, best);
     }
-    return valid || raw === "";
+    return problem; // "" when fine
   }
 
   // Read a numeric input for the protein / weight / goal buttons. Previously
@@ -1542,9 +1564,9 @@
     `;
   }
 
-  function fmtShortDate(dateStr) {
+  function fmtShortDate(dateStr, withYear) {
     const d = new Date(dateStr + "T00:00:00");
-    return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+    return d.toLocaleDateString(undefined, withYear ? { day: "numeric", month: "short", year: "2-digit" } : { day: "numeric", month: "short" });
   }
 
   // Entries within the selected WEIGHT_RANGES window (history must be date-ascending)
@@ -1604,7 +1626,7 @@
     const labelIdxs = points.length > 2 ? (midOk ? [0, midIdx, points.length - 1] : [0, points.length - 1]) : points.map((_, i) => i);
     const xLabels = labelIdxs.map((i) => {
       const anchor = i === 0 ? "start" : i === points.length - 1 ? "end" : "middle";
-      return `<text x="${xAt(i)}" y="${h - 6}" font-size="9.5" fill="var(--text-dim)" text-anchor="${anchor}">${fmtShortDate(points[i].date)}</text>`;
+      return `<text x="${xAt(i)}" y="${h - 6}" font-size="9.5" fill="var(--text-dim)" text-anchor="${anchor}">${fmtShortDate(points[i].date, tSpan > 300 * 86400000)}</text>`;
     }).join("");
 
     const last = points[points.length - 1];
@@ -1945,6 +1967,7 @@
           <div class="row" style="justify-content:flex-start;gap:10px">
             ${previewUrl ? `<img src="${previewUrl}" alt="" style="width:52px;height:52px;border-radius:10px;object-fit:cover" />` : ""}
             <label class="btn sm ghost" style="margin:0">${icon("camera")} ${previewUrl ? "Change photo" : "Add photo"}<input type="file" accept="image/*" capture="environment" id="new-exercise-photo" style="display:none" /></label>
+            ${existingPhoto ? `<button class="btn sm danger" data-del-photo="${editingExerciseId}">Remove</button>` : ""}
           </div>
         </div>
         <button class="btn primary block" id="save-new-exercise">${editing ? "Save changes" : "Add exercise"}</button>
@@ -2027,15 +2050,27 @@
   // One click at a time: most handlers below await IndexedDB, and a quick
   // double-tap on Add/Save used to run the handler twice and create
   // duplicate exercises or muscle groups.
-  let clickBusy = false;
+  // The guard releases itself after 5s regardless, so a handler stuck on a
+  // promise that never settles can't lock every button until reload.
+  let clickBusySince = 0;
   appEl.addEventListener("click", async (e) => {
-    if (clickBusy) return;
-    clickBusy = true;
-    try { await handleClick(e); } finally { clickBusy = false; }
+    if (clickBusySince && Date.now() - clickBusySince < 5000) return;
+    clickBusySince = Date.now();
+    try {
+      await handleClick(e);
+    } catch (err) {
+      // A failed IndexedDB call (e.g. the connection was closed by a version
+      // change in another tab) used to fail with nothing on screen.
+      console.error(err);
+      toast("Something went wrong — try again, or reload the app");
+    } finally {
+      clickBusySince = 0;
+    }
   });
 
   async function handleClick(e) {
     const t = e.target;
+    captureFormName(); // any click may re-render; never lose what's typed in the exercise form
 
     const navBtn = t.closest("[data-nav]");
     if (navBtn) { navTo(navBtn.dataset.nav); return; }
@@ -2326,12 +2361,15 @@
       const name = document.getElementById("new-exercise-name").value.trim();
       if (!name) { toast("Enter an exercise name"); return; }
       if (selectedMuscles.length === 0) { toast("Pick at least one muscle group"); return; }
-      if (state.exercises.some((x) => x.id !== editingExerciseId && x.name.toLowerCase() === name.toLowerCase())) {
+      const existing = editingExerciseId ? state.exercises.find((x) => x.id === editingExerciseId) : null;
+      // Refuse a name another exercise already has — but not when an edit
+      // keeps its own name (an imported duplicate would otherwise be uneditable).
+      const renamed = !existing || existing.name.toLowerCase() !== name.toLowerCase();
+      if (renamed && state.exercises.some((x) => x.id !== editingExerciseId && x.name.toLowerCase() === name.toLowerCase())) {
         toast("Already in your library"); return;
       }
       let exerciseId;
       if (editingExerciseId) {
-        const existing = state.exercises.find((x) => x.id === editingExerciseId);
         if (!existing) {
           // Deleted (or erased) while the edit form was open
           toast("That exercise no longer exists");
@@ -2438,11 +2476,15 @@
 
   // input listeners (change, not click) — set weight/reps and file import
   appEl.addEventListener("change", async (e) => {
+    try { await handleChange(e); } catch (err) { console.error(err); toast("Something went wrong — try again, or reload the app"); }
+  });
+
+  async function handleChange(e) {
     const t = e.target;
     const freqInput = t.closest("[data-muscle-freq]");
     if (freqInput) {
       const mg = state.muscleGroups.find((m) => m.id === freqInput.dataset.muscleFreq);
-      const frequency = clampFrequency(freqInput.value);
+      const frequency = freqInput.value.trim() === "" && mg ? mg.frequency : clampFrequency(freqInput.value);
       freqInput.value = frequency; // show what was actually saved
       if (mg) {
         await Repo.updateMuscleGroup(Object.assign({}, mg, { frequency }));
@@ -2458,8 +2500,17 @@
         const r = await Repo.importAll(data);
         await loadAll();
         render();
-        const dup = r.skippedGroups ? ` · ${r.skippedGroups} muscle group${r.skippedGroups > 1 ? "s" : ""} already existed` : "";
-        toast(`Imported ${r.sessions} session${r.sessions === 1 ? "" : "s"}, ${r.exercises} exercise${r.exercises === 1 ? "" : "s"}${dup}`);
+        const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+        const parts = [];
+        if (r.sessions) parts.push(plural(r.sessions, "session"));
+        if (r.exercises) parts.push(plural(r.exercises, "exercise"));
+        if (r.protein) parts.push(plural(r.protein, "protein entry").replace("entrys", "entries"));
+        if (r.bodyweight) parts.push(plural(r.bodyweight, "weigh-in"));
+        if (r.muscleGroups) parts.push(plural(r.muscleGroups, "muscle group"));
+        if (r.updatedGroups) parts.push(plural(r.updatedGroups, "muscle group") + " updated");
+        if (r.photos) parts.push(plural(r.photos, "photo"));
+        if (r.settings) parts.push("settings");
+        toast(parts.length ? "Imported " + parts.join(", ") : "Nothing new in that backup");
       } catch (err) {
         toast(err && /not a We Go Gym backup/.test(err.message) ? "Import failed — not a We Go Gym backup" : "Import failed — invalid file");
       }
@@ -2489,10 +2540,11 @@
     }
     const setField = t.closest("[data-set-field]");
     if (setField) {
-      if (!applySetField(setField)) { setField.value = ""; toast("Sets need a positive number"); }
+      const problem = applySetField(setField);
+      if (problem) { setField.value = ""; toast(problem); }
       return;
     }
-  });
+  }
 
   // live updates: exercise search filter, and set inputs (see applySetField)
   appEl.addEventListener("input", (e) => {

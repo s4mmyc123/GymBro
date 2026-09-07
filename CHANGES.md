@@ -83,12 +83,15 @@ variation" list and the "Best:" pill on the detail screen showed the date of
 the latest tie. All three now walk sessions oldest-first, so a tie keeps the
 original date.
 
-### 2.4 Exercise history is one row per session  [UI]
+### 2.4 Exercise history is one row per calendar day  [UI]
 The comment in the code said "one best set per session" but the loop
 produced one row per entry. Logging two variations of one exercise in the
 same workout produced two rows for one date and a false dip in the trend.
-Now each session contributes one row: the best set across all its entries
-for that exercise, with the volume summed.
+Now each day contributes one row: the best set across every entry and
+session of that exercise on that day, with the volume summed. (The first
+version of this fix grouped by session; the verification pass showed that
+two same-day sessions then collapsed into a single Strength Index point, so
+grouping by day is the consistent choice for the charts and the index.)
 
 ### 2.5 Future-dated sessions clamp to "Today"  [Import]
 A session dated in the future rendered "-3 days ago" with a negative bar
@@ -188,7 +191,8 @@ Opening "New exercise" inside a workout and then reaching Settings via the
 keyboard left the Settings form in Train mode, which could create a
 duplicate exercise on save. Leaving the Train tab now closes the picker and
 its form, and the Settings add and edit buttons clear the Train flags.
-Typed text in a form survives switching tabs.
+Text typed in the Settings form survives switching tabs; the Train sheet's
+form is discarded on leaving Train, since the sheet itself closes.
 
 ### 4.5 Erase all data clears the in-progress workout  [UI]
 The draft stayed in memory referencing deleted exercises and re-saved itself
@@ -258,3 +262,56 @@ These are behaviour decisions rather than defects. They are yours to call.
 
 - Removed `viewRotationFull`, a view function nothing called. The rotation
   list it rendered lives on the Home and Progress tabs via `rotationListHTML`.
+
+## 8. Second verification round
+
+After the fixes above, four fresh agents re-tested every area against the
+new build. All reported bugs were confirmed fixed with no regressions. They
+raised the following, all now addressed.
+
+### 8.1 Import merge kept the wrong frequency  [UI]  (regression from 1.3)
+Skipping a muscle group whose name already existed meant a restored backup
+lost your frequencies and colours to the re-seeded defaults. A name match
+now keeps the existing id but takes the backup's frequency and colour. The
+import toast reports "N muscle groups updated".
+
+### 8.2 Editing an exercise without renaming it  [Import]
+Two exercises with the same name can arrive via import. The duplicate-name
+check then blocked saving either one, even to change a photo. The check now
+runs only when the name actually changes.
+
+### 8.3 Lifts logged on a single day no longer feed the Strength Index  [UI]
+A one-off lift sat at 100 forever and dragged the average toward "no
+change". A lift needs two days of history before it counts.
+
+### 8.4 Photo removal  [UI]
+The handler to delete a photo existed but nothing rendered a button for it.
+The edit form now shows Remove next to Change photo when a photo is saved.
+
+### 8.5 Imported long names  [Import]
+Names longer than the input limits are cut to the same limits on read, and
+rows in Settings, Train, and the picker wrap rather than widening the page.
+
+### 8.6 Smaller items
+- A set value above the ceiling now says "Sets can't be more than 10000"
+  rather than "positive number".
+- Clearing an inline frequency field keeps the previous value instead of
+  resetting to 2.
+- Typed text in the exercise form survives every click, including adding or
+  deleting a muscle group.
+- The import summary lists every kind of record imported, and says "Nothing
+  new in that backup" when there was none.
+- Numeric settings in a backup are stored as numbers even if the file had
+  them as text. Photos for exercises that do not exist are skipped.
+- Weight chart date labels include the year when the range spans more than
+  about ten months.
+- The one-click-at-a-time guard releases itself after five seconds, so a
+  handler stuck on a promise cannot freeze every button.
+- Any unexpected error inside a click or change handler now shows "Something
+  went wrong — try again, or reload the app" instead of failing silently.
+
+### 8.7 Reported, left as is
+- 1Y is today plus the 364 days before it, consistent with the other ranges.
+- Invalid records hidden by the normaliser stay in the database untouched.
+- A half-filled set (reps but no weight) is still saved and counted in
+  "sets logged"; it is excluded from bests and PRs. Pre-existing behaviour.

@@ -109,6 +109,10 @@ html, body {
   justify-content: space-between;
   gap: 10px;
 }
+/* Long names (e.g. from an imported backup) wrap instead of forcing the
+   page to scroll sideways; flex children need min-width:0 to allow it. */
+.card, .sheet { overflow-wrap: anywhere; }
+.row > div, .row > span, .ex-title strong, .pick-row > span { min-width: 0; }
 
 .row + .row {
   margin-top: 8px;
