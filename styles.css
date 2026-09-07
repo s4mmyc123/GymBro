@@ -415,7 +415,7 @@ label {
 .toast {
   position: fixed;
   left: 50%;
-  bottom: 90px;
+  bottom: calc(90px + env(safe-area-inset-bottom));
   transform: translate(-50%, 20px);
   background: var(--surface-2);
   border: 1px solid var(--border);

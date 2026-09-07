@@ -1,7 +1,7 @@
 // We Go Gym service worker — caches the app shell so it works with no signal.
 // Data itself lives in IndexedDB (handled in app.js), untouched by this file.
 
-const CACHE = "we-go-gym-v10";
+const CACHE = "we-go-gym-v11";
 const ASSETS = [
   "./",
   "./index.html",
@@ -28,13 +28,26 @@ self.addEventListener("activate", (event) => {
 // Network-first with cache fallback: you always get the newest version when
 // online (no more double-reload to see updates), and the cached copy still
 // keeps the app working with no signal.
+//
+// Only successful http(s) GETs are cached — caching a 404 or a server error
+// would replay it forever offline, and cache.put() rejects outright for
+// non-http schemes (the backup import fetches data: URLs through here).
 self.addEventListener("fetch", (event) => {
-  if (event.request.method !== "GET") return;
+  const req = event.request;
+  if (req.method !== "GET" || !req.url.startsWith("http")) return;
   event.respondWith(
-    fetch(event.request).then((res) => {
-      const copy = res.clone();
-      caches.open(CACHE).then((cache) => cache.put(event.request, copy));
+    fetch(req).then((res) => {
+      if (res.ok) {
+        const copy = res.clone();
+        caches.open(CACHE).then((cache) => cache.put(req, copy)).catch(() => {});
+      }
       return res;
-    }).catch(() => caches.match(event.request))
+    }).catch(() =>
+      caches.match(req).then((hit) =>
+        // A navigation we never cached under that exact URL (e.g. "/?x=1")
+        // still gets the app shell rather than the browser's offline page.
+        hit || (req.mode === "navigate" ? caches.match("./index.html") : undefined)
+      )
+    )
   );
 });

@@ -5,7 +5,7 @@ A simple, local-first gym tracker: log sessions and lifts, see which muscle grou
 ## What it does
 
 - **Home**: today's top 3 muscle groups to train next, a one-tap Start Workout shortcut, quick protein logging (custom gram amount), and a quick body weight log — all without leaving the screen.
-- **Train**: start a session, add exercises, log sets (weight × reps). Matches or beats to your best are flagged live.
+- **Train**: start a session, add exercises, log sets (weight × reps). Matches or beats to your best are flagged live. Bests and PRs are tracked per exercise *and* variation, so a rope pushdown and a straight-bar pushdown each keep their own record.
 - **Rotation**: every muscle group's "days since last trained" is ranked on Home and Progress, so you always know what's next.
 - **Progress**: a one-stop trends screen — Strength Index, protein chart, muscle rotation, personal records, and per-exercise trend lines (estimated 1RM and session volume), with your saved exercise photo shown alongside.
 - **Strength Index**: a single "are you stronger than when you started tracking" number (starts at 100, rises as your lifts improve), plus a per-muscle-group breakdown so you can see which muscle groups are progressing fastest. See "How the Strength Index works" below for the reasoning.
