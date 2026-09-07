@@ -34,6 +34,13 @@
     { name: "Cardio", color: "#ef4444" }
   ];
   const DEFAULT_FREQUENCY = 2; // times per week
+  const FREQUENCY_MAX = 14;    // times per week (matches the input's max attribute)
+
+  // Sanity ceilings for user-entered numbers. Generous on purpose — they only
+  // exist to stop a stray "1e9" from wrecking every chart and total.
+  const SET_VALUE_MAX = 10000;   // kg, reps, minutes or km per set
+  const PROTEIN_MAX = 5000;      // grams per entry, and for the daily goal
+  const BODYWEIGHT_MAX = 1000;   // kg, for weigh-ins and the goal
 
   // Muscle groups that aren't about lifting heavier over time — excluded from the Strength Index.
   const NON_STRENGTH_GROUPS = ["Cardio"];
@@ -143,8 +150,16 @@
             db.createObjectStore("muscleGroups", { keyPath: "id" });
           }
         };
-        req.onsuccess = () => resolve(req.result);
+        req.onsuccess = () => {
+          const db = req.result;
+          // If another tab (or a future release) opens a newer DB version,
+          // let go of our connection so the upgrade isn't blocked forever;
+          // the next Repo call simply reopens.
+          db.onversionchange = () => { db.close(); dbPromise = null; };
+          resolve(db);
+        };
         req.onerror = () => reject(req.error);
+        req.onblocked = () => reject(new Error("The app is open in another tab — close it and reload."));
       });
       return dbPromise;
     }
@@ -225,21 +240,106 @@
       await put("settings", { key: "muscleGroupsSeeded", value: true });
     }
 
-    // Defensive shape-fixing for records that arrived via an imported backup
-    // (or an older version of the app) — every view assumes these exist.
+    // ---- Record normalisation ------------------------------------------
+    // Everything the views assume about a record's shape is enforced here,
+    // once, on the way out of IndexedDB — so a backup edited by hand (or a
+    // record from an older version) can't take the whole app down. A record
+    // with no usable identity or date returns null and is dropped from the
+    // list; numbers outside their sanity bounds are blanked.
+    const isStr = (v) => typeof v === "string" && v.trim() !== "";
+    const isDateKey = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
+    const posNum = (v, max) => {
+      const n = typeof v === "number" ? v : (typeof v === "string" && v.trim() !== "" ? Number(v) : NaN);
+      return Number.isFinite(n) && n > 0 && n <= max ? n : null;
+    };
+
     function normalizeExercise(ex) {
+      if (!ex || !isStr(ex.id) || !isStr(ex.name)) return null;
       return Object.assign({}, ex, {
-        muscleGroups: Array.isArray(ex.muscleGroups) ? ex.muscleGroups : [],
-        variations: Array.isArray(ex.variations) ? ex.variations : [],
+        name: ex.name.trim(),
+        muscleGroups: Array.isArray(ex.muscleGroups) ? ex.muscleGroups.filter(isStr) : [],
+        variations: Array.isArray(ex.variations) ? ex.variations.filter(isStr) : [],
         metric: METRIC_TYPES[ex.metric] ? ex.metric : DEFAULT_METRIC
       });
     }
 
+    function normalizeSet(set, metric) {
+      const out = emptySet(metric);
+      if (!set || typeof set !== "object") return out;
+      for (const f of metricFields(metric)) {
+        const n = posNum(set[f.key], SET_VALUE_MAX);
+        out[f.key] = n === null ? "" : n;
+      }
+      return out;
+    }
+
+    function normalizeEntry(entry) {
+      if (!entry || !isStr(entry.exerciseId)) return null;
+      const metric = METRIC_TYPES[entry.metric] ? entry.metric : DEFAULT_METRIC;
+      const sets = (Array.isArray(entry.sets) ? entry.sets : [])
+        .map((x) => normalizeSet(x, metric))
+        .filter((x) => Object.values(x).some((v) => v));
+      return Object.assign({}, entry, {
+        exerciseName: isStr(entry.exerciseName) ? entry.exerciseName : "Unknown exercise",
+        muscleGroups: Array.isArray(entry.muscleGroups) ? entry.muscleGroups.filter(isStr) : [],
+        variation: isStr(entry.variation) ? entry.variation : "",
+        metric, sets
+      });
+    }
+
+    function normalizeSession(sess) {
+      if (!sess || !isStr(sess.id) || !isDateKey(sess.date)) return null;
+      const dayStart = new Date(sess.date + "T00:00:00").getTime();
+      const startedAt = Number.isFinite(Number(sess.startedAt)) ? Number(sess.startedAt) : dayStart;
+      const endedAt = Number.isFinite(Number(sess.endedAt)) ? Number(sess.endedAt) : undefined;
+      return Object.assign({}, sess, {
+        entries: (Array.isArray(sess.entries) ? sess.entries : []).map(normalizeEntry).filter(Boolean),
+        startedAt, endedAt
+      });
+    }
+
+    function normalizeMuscleGroup(mg, index) {
+      if (!mg || !isStr(mg.id) || !isStr(mg.name)) return null;
+      const freq = Math.round(Number(mg.frequency));
+      return Object.assign({}, mg, {
+        name: mg.name.trim(),
+        frequency: Number.isFinite(freq) ? Math.min(FREQUENCY_MAX, Math.max(1, freq)) : DEFAULT_FREQUENCY,
+        color: /^#[0-9a-f]{6}$/i.test(String(mg.color || "")) ? mg.color : MUSCLE_COLOR_PALETTE[index % MUSCLE_COLOR_PALETTE.length]
+      });
+    }
+
+    function normalizeProtein(pr) {
+      if (!pr || !isStr(pr.id) || !isDateKey(pr.date)) return null;
+      const amount = posNum(pr.amount, PROTEIN_MAX);
+      if (amount === null) return null;
+      return Object.assign({}, pr, {
+        amount,
+        note: isStr(pr.note) ? pr.note : "",
+        loggedAt: Number(pr.loggedAt) || new Date(pr.date + "T00:00:00").getTime()
+      });
+    }
+
+    function normalizeBodyweight(bw) {
+      if (!bw || !isDateKey(bw.date)) return null;
+      const weight = posNum(bw.weight, BODYWEIGHT_MAX);
+      if (weight === null) return null;
+      return Object.assign({}, bw, { weight, loggedAt: Number(bw.loggedAt) || 0 });
+    }
+
+    // Which settings a backup may carry, and what a valid value looks like.
+    const SETTING_VALID = {
+      proteinGoal: (v) => posNum(v, PROTEIN_MAX) !== null,
+      weightGoal: (v) => v === null || posNum(v, BODYWEIGHT_MAX) !== null,
+      builtinsCleared: (v) => typeof v === "boolean",
+      muscleGroupsSeeded: (v) => typeof v === "boolean"
+    };
+
     return {
       init: () => open().then(ensureSeeded).then(clearBuiltinExercises).then(migrateLegacyMuscleGroups).then(ensureMuscleGroupsSeeded),
+      normalizeSession,
 
       // Muscle groups — fully user-managed (see Settings)
-      listMuscleGroups: () => getAll("muscleGroups").then((l) => l.sort((a, b) => a.name.localeCompare(b.name))),
+      listMuscleGroups: () => getAll("muscleGroups").then((l) => l.map(normalizeMuscleGroup).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name))),
       // Colour: first palette entry not already in use, so deleting and
       // re-adding groups doesn't hand two of them the same swatch.
       addMuscleGroup: (name, frequency) => getAll("muscleGroups").then((existing) => {
@@ -251,19 +351,19 @@
       deleteMuscleGroup: (id) => del("muscleGroups", id),
 
       // Exercises
-      listExercises: () => getAll("exercises").then((l) => l.map(normalizeExercise).sort((a, b) => a.name.localeCompare(b.name))),
+      listExercises: () => getAll("exercises").then((l) => l.map(normalizeExercise).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name))),
       addExercise: (name, muscleGroups, variations, metric) =>
         put("exercises", { id: uid(), name, muscleGroups, variations: variations || [], metric: metric || DEFAULT_METRIC, isCustom: true }),
       updateExercise: (ex) => put("exercises", ex),
       deleteExercise: (id) => del("exercises", id),
 
       // Sessions
-      listSessions: () => getAll("sessions").then((l) => l.sort((a, b) => b.date.localeCompare(a.date) || (b.startedAt - a.startedAt))),
+      listSessions: () => getAll("sessions").then((l) => l.map(normalizeSession).filter(Boolean).sort((a, b) => b.date.localeCompare(a.date) || (b.startedAt - a.startedAt))),
       saveSession: (session) => put("sessions", session),
       deleteSession: (id) => del("sessions", id),
 
       // Protein
-      listProtein: () => getAll("protein").then((l) => l.sort((a, b) => b.loggedAt - a.loggedAt)),
+      listProtein: () => getAll("protein").then((l) => l.map(normalizeProtein).filter(Boolean).sort((a, b) => b.loggedAt - a.loggedAt)),
       addProtein: (amount, note) => put("protein", { id: uid(), date: todayStr(), amount, note: note || "", loggedAt: Date.now() }),
       deleteProtein: (id) => del("protein", id),
 
@@ -278,7 +378,7 @@
       deletePhoto: (exerciseId) => del("photos", exerciseId),
 
       // Body weight (one entry per day — logging again the same day overwrites it)
-      listBodyweight: () => getAll("bodyweight").then((l) => l.sort((a, b) => a.date.localeCompare(b.date))),
+      listBodyweight: () => getAll("bodyweight").then((l) => l.map(normalizeBodyweight).filter(Boolean).sort((a, b) => a.date.localeCompare(b.date))),
       setBodyweight: (date, weight) => put("bodyweight", { date, weight, loggedAt: Date.now() }),
       deleteBodyweight: (date) => del("bodyweight", date),
 
@@ -297,30 +397,67 @@
         })));
         return { exportedAt: new Date().toISOString(), exercises, sessions, protein, settings: settingsList, photos: photosEncoded, bodyweight, muscleGroups };
       },
+      // Import is a merge: records are matched by id, and muscle groups also
+      // by name (the seeded defaults after an Erase would otherwise come back
+      // twice). Everything is validated and decoded first, then written in a
+      // single transaction — a bad file either imports completely or not at all.
       async importAll(data) {
-        if (data.exercises) for (const e of data.exercises) await put("exercises", e);
-        if (data.sessions) for (const s of data.sessions) await put("sessions", s);
-        if (data.protein) for (const p of data.protein) await put("protein", p);
-        if (data.settings) for (const s of data.settings) await put("settings", s);
-        if (data.bodyweight) for (const b of data.bodyweight) await put("bodyweight", b);
-        if (data.muscleGroups) for (const m of data.muscleGroups) await put("muscleGroups", m);
-        if (data.photos) {
-          for (const p of data.photos) {
-            if (!p.dataUrl) continue;
-            const blob = await (await fetch(p.dataUrl)).blob();
-            await put("photos", { exerciseId: p.exerciseId, blob });
-          }
+        const STORES = ["exercises", "sessions", "protein", "settings", "bodyweight", "muscleGroups", "photos"];
+        if (!data || typeof data !== "object" || Array.isArray(data) || !STORES.some((k) => Array.isArray(data[k]))) {
+          throw new Error("not a We Go Gym backup");
         }
+        const arr = (k) => (Array.isArray(data[k]) ? data[k] : []);
+
+        const exercises = arr("exercises").map(normalizeExercise).filter(Boolean).map((e) => Object.assign(e, { isCustom: true }));
+        const sessions = arr("sessions").map(normalizeSession).filter(Boolean);
+        const protein = arr("protein").map(normalizeProtein).filter(Boolean);
+        const bodyweight = arr("bodyweight").map(normalizeBodyweight).filter(Boolean);
+        const settings = arr("settings")
+          .filter((x) => x && isStr(x.key) && SETTING_VALID[x.key] && SETTING_VALID[x.key](x.value))
+          .map((x) => ({ key: x.key, value: x.value }));
+
+        const existingGroups = await getAll("muscleGroups");
+        const seenNames = new Set(existingGroups.map((m) => String(m.name || "").toLowerCase()));
+        const muscleGroups = [];
+        let skippedGroups = 0;
+        arr("muscleGroups").map(normalizeMuscleGroup).filter(Boolean).forEach((m) => {
+          const key = m.name.toLowerCase();
+          if (seenNames.has(key)) { skippedGroups++; return; }
+          seenNames.add(key);
+          muscleGroups.push(m);
+        });
+
+        const photos = await Promise.all(arr("photos")
+          .filter((ph) => ph && isStr(ph.exerciseId) && typeof ph.dataUrl === "string" && ph.dataUrl.startsWith("data:image/"))
+          .map(async (ph) => ({ exerciseId: ph.exerciseId, blob: await (await fetch(ph.dataUrl)).blob() })));
+
+        const db = await open();
+        await new Promise((resolve, reject) => {
+          const tx = db.transaction(STORES, "readwrite");
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+          tx.onabort = () => reject(tx.error || new Error("import aborted"));
+          const write = (store, list) => { const os = tx.objectStore(store); for (const r of list) os.put(r); };
+          write("exercises", exercises); write("sessions", sessions); write("protein", protein);
+          write("settings", settings); write("bodyweight", bodyweight); write("muscleGroups", muscleGroups);
+          write("photos", photos);
+        });
+        return { exercises: exercises.length, sessions: sessions.length, protein: protein.length, bodyweight: bodyweight.length, muscleGroups: muscleGroups.length, skippedGroups, photos: photos.length };
       },
       async clearAll() {
         const db = await open();
-        for (const store of ["exercises", "sessions", "protein", "settings", "photos", "bodyweight", "muscleGroups"]) {
-          await new Promise((res, rej) => {
-            const r = db.transaction(store, "readwrite").objectStore(store).clear();
-            r.onsuccess = res; r.onerror = () => rej(r.error);
-          });
-        }
+        const stores = ["exercises", "sessions", "protein", "settings", "photos", "bodyweight", "muscleGroups"];
+        await new Promise((resolve, reject) => {
+          const tx = db.transaction(stores, "readwrite");
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+          for (const store of stores) tx.objectStore(store).clear();
+        });
         await ensureSeeded();
+        // The one-time "remove old built-in exercises" cleanup must not run
+        // again on this now-empty library, or it would delete anything
+        // imported next that happens to lack an isCustom flag.
+        await put("settings", { key: "builtinsCleared", value: true });
         await ensureMuscleGroupsSeeded();
       }
     };
@@ -329,10 +466,32 @@
   // -----------------------------------------------------------------------
   // Domain helpers
   // -----------------------------------------------------------------------
+  // Clamped at 0: a session dated in the future (imported from a device with
+  // a wrong clock, or another timezone) reads as "Today" rather than
+  // "-3 days ago" with a negative bar width.
   function daysAgo(dateStr) {
     const d = new Date(dateStr + "T00:00:00");
     const now = new Date(todayStr() + "T00:00:00");
-    return Math.round((now - d) / 86400000);
+    return Math.max(0, Math.round((now - d) / 86400000));
+  }
+
+  // A set only counts as a lift when both numbers are real positives —
+  // "!set.weight" alone let a typo like -50 through as a personal record.
+  function isLiftSet(set) {
+    return set.weight > 0 && set.reps > 0;
+  }
+
+  // Sessions are kept newest-first for display. Anything that answers "when
+  // was this first achieved" or draws a trend walks them oldest-first, with
+  // startedAt breaking ties so two sessions on one day keep their real order.
+  function chronological(sessions) {
+    return sessions.slice().sort((a, b) => a.date.localeCompare(b.date) || (a.startedAt - b.startedAt));
+  }
+
+  // Totals of user-entered decimals can pick up float noise; one decimal is
+  // all a gram or kilo figure ever needs.
+  function fmtNum(n) {
+    return Math.round(n * 10) / 10;
   }
 
   function fmtDaysAgo(n) {
@@ -350,7 +509,7 @@
       for (const entry of s.entries) {
         if (entry.exerciseId !== exerciseId) continue;
         if (variation !== undefined && (entry.variation || "") !== variation) continue;
-        if (entry.sets.some((x) => Object.values(x).some((v) => v))) return { date: s.date, sets: entry.sets };
+        if (entry.sets.some((x) => Object.values(x).some((v) => v))) return { date: s.date, sets: entry.sets, metric: entry.metric || DEFAULT_METRIC };
       }
     }
     return null;
@@ -368,11 +527,11 @@
   // Drives the PR count on Finish and the per-variation list on the detail screen.
   function bestSetsByVariation(sessions) {
     const best = {};
-    for (const s of sessions) {
+    for (const s of chronological(sessions)) {
       for (const entry of s.entries) {
         const key = variationKey(entry.exerciseId, entry.variation);
         for (const set of entry.sets) {
-          if (!set.weight || !set.reps) continue;
+          if (!isLiftSet(set)) continue;
           const orm = estOneRM(set.weight, set.reps);
           if (!best[key] || orm > best[key].orm) {
             best[key] = { orm, weight: set.weight, reps: set.reps, date: s.date, exerciseId: entry.exerciseId, variation: entry.variation || "" };
@@ -386,12 +545,12 @@
   // Best set for one exercise + variation combination (same filtering rule)
   function bestSetForVariation(sessions, exerciseId, variation) {
     let best = null;
-    for (const s of sessions) {
+    for (const s of chronological(sessions)) {
       for (const entry of s.entries) {
         if (entry.exerciseId !== exerciseId) continue;
         if ((entry.variation || "") !== variation) continue;
         for (const set of entry.sets) {
-          if (!set.weight || !set.reps) continue;
+          if (!isLiftSet(set)) continue;
           const orm = estOneRM(set.weight, set.reps);
           if (!best || orm > best.orm) best = { orm, weight: set.weight, reps: set.reps, date: s.date };
         }
@@ -478,10 +637,10 @@
   // progress (and count as a PR the first time they're logged).
   function bestSetsByExercise(sessions) {
     const best = {};
-    for (const s of sessions) {
+    for (const s of chronological(sessions)) {
       for (const entry of s.entries) {
         for (const set of entry.sets) {
-          if (!set.weight || !set.reps) continue;
+          if (!isLiftSet(set)) continue;
           const orm = estOneRM(set.weight, set.reps);
           if (!best[entry.exerciseId] || orm > best[entry.exerciseId].orm) {
             best[entry.exerciseId] = { orm, weight: set.weight, reps: set.reps, date: s.date };
@@ -492,26 +651,26 @@
     return best;
   }
 
-  // Chronological history entries (weight/reps/1RM/volume) for one exercise
+  // Chronological history (weight/reps/1RM/volume) for one exercise: one row
+  // per *session*, taking the best set across every entry of that exercise
+  // in it (an exercise can appear twice — e.g. two variations) and summing
+  // the volume. One row per entry would draw a false dip whenever the
+  // lighter variation happened to be logged second.
   function exerciseHistory(sessions, exerciseId) {
     const history = [];
-    for (const s of sessions) {
+    for (const s of chronological(sessions)) {
+      let volume = 0, bestOrm = 0, bestSet = null;
       for (const entry of s.entries) {
         if (entry.exerciseId !== exerciseId) continue;
-        let sessionVolume = 0;
-        let sessionBestOrm = 0, sessionBestSet = null;
         for (const set of entry.sets) {
-          if (!set.weight || !set.reps) continue;
-          sessionVolume += set.weight * set.reps;
+          if (!isLiftSet(set)) continue;
+          volume += set.weight * set.reps;
           const orm = estOneRM(set.weight, set.reps);
-          if (orm > sessionBestOrm) { sessionBestOrm = orm; sessionBestSet = set; }
-        }
-        if (sessionBestSet) {
-          history.push({ date: s.date, weight: sessionBestSet.weight, reps: sessionBestSet.reps, orm: sessionBestOrm, volume: sessionVolume });
+          if (orm > bestOrm) { bestOrm = orm; bestSet = set; }
         }
       }
+      if (bestSet) history.push({ date: s.date, weight: bestSet.weight, reps: bestSet.reps, orm: bestOrm, volume });
     }
-    history.sort((a, b) => a.date.localeCompare(b.date));
     return history;
   }
 
@@ -519,17 +678,19 @@
   // (time / distance / reps-only) — no "best" concept, just the raw numbers.
   function genericSetHistory(sessions, exerciseId) {
     const history = [];
-    for (const s of sessions) {
+    for (const s of chronological(sessions)) {
       for (const entry of s.entries) {
         if (entry.exerciseId !== exerciseId) continue;
         const metric = entry.metric || DEFAULT_METRIC;
+        // Weight×reps sets belong to exerciseHistory; an exercise whose
+        // metric was changed after logging keeps both kinds of history.
+        if (metric === "weight_reps") continue;
         for (const set of entry.sets) {
           if (!Object.values(set).some((v) => v)) continue;
           history.push({ date: s.date, set, metric });
         }
       }
     }
-    history.sort((a, b) => a.date.localeCompare(b.date));
     return history;
   }
 
@@ -546,11 +707,11 @@
   // recorded is the day the record was *first* set, not a later tie.
   function recentPRs(sessions) {
     const bestSoFar = {};
-    for (const s of sessions.slice().sort((a, b) => a.date.localeCompare(b.date))) {
+    for (const s of chronological(sessions)) {
       for (const entry of s.entries) {
         const key = variationKey(entry.exerciseId, entry.variation);
         for (const set of entry.sets) {
-          if (!set.weight || !set.reps) continue;
+          if (!isLiftSet(set)) continue;
           const orm = estOneRM(set.weight, set.reps);
           if (!bestSoFar[key] || orm > bestSoFar[key].orm) {
             bestSoFar[key] = {
@@ -601,8 +762,17 @@
     return merged;
   }
 
+  // An exercise feeds the index when it's tracked by weight × reps (so an
+  // estimated 1RM exists) and isn't tagged *only* with non-strength groups.
+  // A sled push tagged Cardio + Legs is still a lift; a run isn't.
+  function isStrengthExercise(ex) {
+    if ((ex.metric || DEFAULT_METRIC) !== "weight_reps") return false;
+    const tags = ex.muscleGroups || [];
+    return !(tags.length > 0 && tags.every((mg) => NON_STRENGTH_GROUPS.includes(mg)));
+  }
+
   function computeStrengthIndex(sessions, exercises) {
-    const strengthExercises = exercises.filter((ex) => !ex.muscleGroups.some((mg) => NON_STRENGTH_GROUPS.includes(mg)));
+    const strengthExercises = exercises.filter(isStrengthExercise);
 
     const overallSeries = mergeSeriesAverage(
       strengthExercises.map((ex) => normalizedExerciseSeries(sessions, ex.id)).filter((s) => s.length > 0)
@@ -803,9 +973,11 @@
     state.exercises = exercises;
     state.sessions = sessions;
     state.protein = protein;
-    state.proteinGoal = proteinGoal;
+    // A goal of 0, null or text (possible via an old backup) would put NaN on
+    // the Home ring; fall back to defaults rather than trust the store.
+    state.proteinGoal = Number(proteinGoal) > 0 && Number(proteinGoal) <= PROTEIN_MAX ? Number(proteinGoal) : 150;
     state.bodyweight = bodyweight;
-    state.weightGoal = weightGoal;
+    state.weightGoal = Number(weightGoal) > 0 && Number(weightGoal) <= BODYWEIGHT_MAX ? Number(weightGoal) : null;
     state.muscleGroups = muscleGroups;
     await refreshPhotoUrls();
   }
@@ -819,16 +991,57 @@
 
   // Set inputs update state on every keystroke (input) as well as on blur
   // (change) so the draft above is never more than one character behind.
+  // Returns false when the typed value was non-empty but unusable (negative,
+  // zero, absurd) so the change handler can clear it and say why.
   function applySetField(input) {
-    if (!state.activeSession) return;
+    if (!state.activeSession) return true;
     const [ei, si, key] = input.dataset.setField.split(":");
     const entry = state.activeSession.entries[Number(ei)];
-    if (!entry || !entry.sets[Number(si)]) return;
-    entry.sets[Number(si)][key] = Number(input.value) || "";
+    const set = entry && entry.sets[Number(si)];
+    if (!set) return true;
+    const raw = input.value.trim();
+    const n = Number(raw);
+    const valid = raw !== "" && Number.isFinite(n) && n > 0 && n <= SET_VALUE_MAX;
+    set[key] = valid ? n : "";
     persistActiveSession();
+    // Refresh just this set's "beats your best" line — a full render here
+    // would steal focus from the input mid-typing.
+    const holder = document.querySelector(`[data-set-hint="${ei}:${si}"]`);
+    if (holder) {
+      const best = (entry.metric || DEFAULT_METRIC) === "weight_reps"
+        ? bestSetForVariation(state.sessions, entry.exerciseId, entry.variation || "") : null;
+      holder.innerHTML = setHintHTML(set, best);
+    }
+    return valid || raw === "";
+  }
+
+  // Read a numeric input for the protein / weight / goal buttons. Previously
+  // an unusable value made the button do nothing at all, with no message.
+  function readPositive(input, max, label) {
+    if (input.validity && input.validity.badInput) { toast(`${label}: enter a number`); return null; }
+    const raw = input.value.trim();
+    if (raw === "") { toast(`${label}: enter a number`); return null; }
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) { toast(`${label} must be above 0`); return null; }
+    if (n > max) { toast(`${label} can't be more than ${max}`); return null; }
+    return n;
+  }
+
+  function clampFrequency(raw) {
+    const n = Math.round(Number(raw));
+    if (!Number.isFinite(n) || String(raw).trim() === "") return DEFAULT_FREQUENCY;
+    return Math.min(FREQUENCY_MAX, Math.max(1, n));
   }
 
   function navTo(route) {
+    captureFormName(); // whichever exercise form is open, don't lose what was typed
+    if (state.route === "train" && route !== "train") {
+      // The picker sheet and its "new exercise" form are Train-only state;
+      // leaving them set made the Settings form think it was in Train mode.
+      addExerciseOpen = false;
+      pickingVariationFor = null;
+      if (trainFormOpen) { trainFormOpen = false; resetExerciseForm(); }
+    }
     state.route = route;
     state.progressDetail = null;
     render();
@@ -878,7 +1091,7 @@
     const rotation = computeRotation(state.sessions);
     const todayProtein = state.protein.filter((p) => p.date === todayStr());
     const totalToday = todayProtein.reduce((a, p) => a + p.amount, 0);
-    const pct = Math.min(100, Math.round((totalToday / state.proteinGoal) * 100));
+    const pct = state.proteinGoal > 0 ? Math.min(100, Math.round((totalToday / state.proteinGoal) * 100)) : 0;
     const circumference = 2 * Math.PI * 40;
     const dash = (pct / 100) * circumference;
 
@@ -904,7 +1117,7 @@
               <div class="ring-label"><span class="num">${pct}%</span><span class="lbl">of goal</span></div>
             </div>
             <div style="flex:1">
-              <div style="font-size:22px;font-weight:800">${totalToday}g <span class="muted" style="font-size:13px;font-weight:600">/ ${state.proteinGoal}g</span></div>
+              <div style="font-size:22px;font-weight:800">${fmtNum(totalToday)}g <span class="muted" style="font-size:13px;font-weight:600">/ ${state.proteinGoal}g</span></div>
               <div class="row" style="margin-top:10px;gap:6px;justify-content:flex-start">
                 <input type="number" inputmode="numeric" id="custom-protein-amount" placeholder="grams" style="width:90px" />
                 <button class="btn sm primary" id="add-custom-protein">Add</button>
@@ -920,7 +1133,7 @@
 
         <div class="card">
           <h2>Muscle rotation <span class="link" data-nav="progress">Muscle detail →</span></h2>
-          ${rotation.map(rotationItemHTML).join("")}
+          ${rotationListHTML(rotation)}
         </div>
 
         <div class="card">
@@ -940,19 +1153,6 @@
   function fmtDate(dateStr) {
     const d = new Date(dateStr + "T00:00:00");
     return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-  }
-
-  function viewRotationFull() {
-    const rotation = computeRotation(state.sessions);
-    return `
-      <div class="view">
-        <div class="card">
-          <h2>Muscle group rotation</h2>
-          <div class="small muted" style="margin-bottom:10px">Ranked by longest time since last trained.</div>
-          ${rotation.map(rotationItemHTML).join("")}
-        </div>
-      </div>
-    `;
   }
 
   function viewTrain() {
@@ -1001,6 +1201,16 @@
     return mins + " min";
   }
 
+  // "Matches/beats your best" line under a set. Rendered inside a holder
+  // per set so applySetField can refresh it on every keystroke without a
+  // full re-render (which would steal focus from the input).
+  function setHintHTML(set, best) {
+    if (!best || !isLiftSet(set)) return "";
+    return estOneRM(set.weight, set.reps) >= best.orm
+      ? `<div class="small" style="color:var(--accent);margin:-2px 0 6px">Matches/beats your best</div>`
+      : "";
+  }
+
   function exerciseBlock(entry, ei) {
     const v = entry.variation || "";
     const metric = entry.metric || DEFAULT_METRIC;
@@ -1017,20 +1227,19 @@
         <div class="small muted" style="margin-bottom:8px">${esc((entry.muscleGroups || []).join(", "))}</div>
         ${prev || best ? `
         <div class="ex-stats">
-          ${prev ? `<div class="ex-stat"><span class="ex-stat-label">Last · ${fmtDaysAgo(daysAgo(prev.date))}</span><span class="ex-stat-value">${prev.sets.map((x) => formatSetValue(x, metric)).join(", ")}</span></div>` : ""}
+          ${prev ? `<div class="ex-stat"><span class="ex-stat-label">Last · ${fmtDaysAgo(daysAgo(prev.date))}</span><span class="ex-stat-value">${prev.sets.map((x) => formatSetValue(x, prev.metric)).join(", ")}</span></div>` : ""}
           ${best ? `<div class="ex-stat best"><span class="ex-stat-label">Best</span><span class="ex-stat-value">${best.weight}kg × ${best.reps} <span class="muted">(~${Math.round(best.orm)}kg 1RM)</span></span></div>` : ""}
         </div>` : ""}
         ${entry.sets.map((set, si) => {
-          const orm = isStrength ? estOneRM(set.weight, set.reps) : 0;
-          const isPR = isStrength && best && orm >= best.orm && set.weight > 0;
-          const ghost = prev && prev.sets[si] ? prev.sets[si] : null;
+          // Ghost values only make sense when the last time was logged in the same metric
+          const ghost = prev && prev.metric === metric && prev.sets[si] ? prev.sets[si] : null;
           return `
           <div class="set-row${fields.length === 1 ? " single" : ""}">
             <span class="idx">${si + 1}</span>
-            ${fields.map((f) => `<input type="number" inputmode="${f.inputMode}" placeholder="${ghost && ghost[f.key] ? ghost[f.key] : f.placeholder}" value="${set[f.key] || ""}" data-set-field="${ei}:${si}:${f.key}" />`).join("")}
+            ${fields.map((f) => `<input type="number" min="0" max="${SET_VALUE_MAX}" inputmode="${f.inputMode}" placeholder="${ghost && ghost[f.key] ? ghost[f.key] : f.placeholder}" value="${set[f.key] || ""}" data-set-field="${ei}:${si}:${f.key}" />`).join("")}
             <button class="del" data-remove-set="${ei}:${si}" aria-label="remove set">×</button>
           </div>
-          ${isPR && si === entry.sets.length - 1 ? `<div class="small" style="color:var(--accent);margin:-2px 0 6px">Matches/beats your best</div>` : ""}
+          <div data-set-hint="${ei}:${si}">${setHintHTML(set, best)}</div>
         `; }).join("")}
         <button class="btn sm ghost" data-add-set="${ei}">+ Add set</button>
       </div>
@@ -1129,9 +1338,11 @@
     const now = new Date();
     const weekAgo = new Date(now); weekAgo.setDate(weekAgo.getDate() - 6);
     const weekAgoStr = dateKey(weekAgo);
-    const thisWeekSessions = state.sessions.filter((s) => s.date >= weekAgoStr);
+    const today = todayStr();
+    const thisWeekSessions = state.sessions.filter((s) => s.date >= weekAgoStr && s.date <= today);
     const setsThisWeek = thisWeekSessions.reduce((a, s) => a + s.entries.reduce((b, e) => b + e.sets.length, 0), 0);
-    const musclesThisWeek = new Set(thisWeekSessions.flatMap((s) => s.entries.flatMap((e) => e.muscleGroups || []))).size;
+    const currentGroups = new Set(state.muscleGroups.map((mg) => mg.name));
+    const musclesThisWeek = new Set(thisWeekSessions.flatMap((s) => s.entries.flatMap((e) => (e.muscleGroups || []).filter((mg) => currentGroups.has(mg))))).size;
 
     return `
       <div class="view">
@@ -1183,9 +1394,13 @@
     `;
   }
 
-  function viewRotationFullInner() {
-    const rotation = computeRotation(state.sessions);
+  function rotationListHTML(rotation) {
+    if (rotation.length === 0) return `<div class="empty">No muscle groups yet — add some in Settings.</div>`;
     return rotation.map(rotationItemHTML).join("");
+  }
+
+  function viewRotationFullInner() {
+    return rotationListHTML(computeRotation(state.sessions));
   }
 
   // For an exercise that's been deleted from the library, rebuild enough of
@@ -1201,70 +1416,69 @@
   function viewProgressDetail(exId) {
     const ex = state.exercises.find((e) => e.id === exId) || exerciseStubFromSessions(exId);
     if (!ex) { state.progressDetail = null; return viewProgress(); }
-    const deletedNote = ex.deleted ? `<div class="small muted" style="margin-bottom:8px">No longer in your library — showing logged history only.</div>` : "";
     const metric = ex.metric || DEFAULT_METRIC;
     const photoUrl = state.photoUrls[exId];
     const photoHTML = photoUrl ? `<img src="${photoUrl}" alt="${esc(ex.name)}" style="width:100%;max-height:180px;object-fit:cover;border-radius:12px;margin:8px 0" />` : "";
+    const deletedNote = ex.deleted ? `<div class="small muted" style="margin-bottom:8px">No longer in your library — showing logged history only.</div>` : "";
 
-    if (metric !== "weight_reps") {
-      // Non-strength metrics just log their raw numbers — no Best/PR/1RM (see METRIC_TYPES note above).
-      const field = metricFields(metric)[0];
-      const history = genericSetHistory(state.sessions, exId);
-      return `
-        <div class="view">
-          <button class="btn sm ghost" data-back-progress style="align-self:flex-start">${icon("back")} Back</button>
-          <div class="card">
-            <div class="row" style="align-items:center;margin-bottom:4px"><h2 style="margin:0">${esc(ex.name)}</h2></div>
-            ${photoHTML}
-            <div class="small muted" style="margin-bottom:10px">${esc(ex.muscleGroups.join(", "))} · ${metricLabel(metric)}</div>
-            ${deletedNote}
-            ${history.length > 1 ? `<div class="small muted" style="margin-bottom:2px">${field.unit} trend</div>${sparkline(history.map((h) => Number(h.set[field.key]) || 0))}` : ""}
-            ${history.length === 0 ? `<div class="empty">No sets logged for this exercise yet.</div>` :
-              `<div style="margin-top:10px">${history.slice().reverse().map((h) => `
-                <div class="row"><span class="small">${fmtDate(h.date)}</span><span class="small">${formatSetValue(h.set, metric)}</span></div>
-              `).join("")}</div>`}
+    // An exercise can carry both kinds of history if its metric was changed
+    // after some sessions were logged — show whichever exist, rather than
+    // picking one by the library's current metric and mis-formatting the rest.
+    const history = exerciseHistory(state.sessions, exId);        // weight×reps, one row per session
+    const generic = genericSetHistory(state.sessions, exId);      // time / distance / reps-only sets
+
+    let strengthHTML = "";
+    if (history.length > 0) {
+      const best = history.reduce((m, h) => (!m || h.orm > m.orm ? h : m), null);
+      const first = history[0];
+      const delta = first && best && first.orm > 0 ? Math.round(((best.orm - first.orm) / first.orm) * 100) : null;
+      // Only worth a section once more than one variation has history (or the
+      // sole variation isn't "Standard") — otherwise it just repeats "Best".
+      const perVariation = Object.values(bestSetsByVariation(state.sessions))
+        .filter((b) => b.exerciseId === exId)
+        .sort((a, b) => b.orm - a.orm);
+      const showVariations = perVariation.length > 1 || (perVariation.length === 1 && perVariation[0].variation);
+      strengthHTML = `
+          <div class="btn-row" style="margin-bottom:12px">
+            <span class="pill good">Best: ${best.weight}kg × ${best.reps} <span class="muted">(~${Math.round(best.orm)}kg 1RM)</span> · ${fmtDate(best.date)}</span>
+            ${delta !== null ? `<span class="pill ${delta >= 0 ? "good" : "bad"}">${delta >= 0 ? "+" : ""}${delta}% since first log</span>` : ""}
           </div>
-        </div>
-      `;
-    }
-
-    const history = exerciseHistory(state.sessions, exId); // one best-set-per-session entries, chronological
-    const best = history.reduce((m, h) => (!m || h.orm > m.orm ? h : m), null);
-    // Only worth a section once more than one variation has history (or the
-    // sole variation isn't "Standard") — otherwise it just repeats "Best".
-    const perVariation = Object.values(bestSetsByVariation(state.sessions))
-      .filter((b) => b.exerciseId === exId)
-      .sort((a, b) => b.orm - a.orm);
-    const showVariations = perVariation.length > 1 || (perVariation.length === 1 && perVariation[0].variation);
-    const variationRows = showVariations ? `
+          ${showVariations ? `
           <div class="small muted" style="margin:4px 0 2px">Best per variation</div>
           <div style="margin-bottom:12px">${perVariation.map((b) => `
             <div class="row"><span class="small">${b.variation ? esc(b.variation) : "Standard"}</span><span class="small">${b.weight}kg × ${b.reps} <span class="muted">(~${Math.round(b.orm)}kg 1RM)</span> · ${fmtDate(b.date)}</span></div>
-          `).join("")}</div>` : "";
-    const first = history[0];
-    const delta = first && best && first.orm > 0 ? Math.round(((best.orm - first.orm) / first.orm) * 100) : null;
+          `).join("")}</div>` : ""}
+          ${history.length > 1 ? `<div class="small muted" style="margin-bottom:2px">Estimated 1RM trend</div>${sparkline(history.map((h) => h.orm))}` : ""}
+          ${history.length > 1 ? `<div class="small muted" style="margin:10px 0 2px">Session volume (weight × reps)</div>${sparkline(history.map((h) => h.volume))}` : ""}
+          <div style="margin-top:10px">${history.slice().reverse().map((h) => `
+            <div class="row"><span class="small">${fmtDate(h.date)}</span><span class="small">${h.weight}kg × ${h.reps} <span class="muted">(~${Math.round(h.orm)}kg 1RM)</span></span></div>
+          `).join("")}</div>`;
+    }
+
+    let genericHTML = "";
+    if (generic.length > 0) {
+      // A trend line only when every logged set shares one metric
+      const metrics = new Set(generic.map((h) => h.metric));
+      const field = metrics.size === 1 ? metricFields(generic[0].metric)[0] : null;
+      genericHTML = `
+          ${history.length > 0 ? `<div class="small muted" style="margin:14px 0 4px">Other logged sets</div>` : ""}
+          ${field && generic.length > 1 ? `<div class="small muted" style="margin-bottom:2px">${field.unit} trend</div>${sparkline(generic.map((h) => Number(h.set[field.key]) || 0))}` : ""}
+          <div style="margin-top:10px">${generic.slice().reverse().map((h) => `
+            <div class="row"><span class="small">${fmtDate(h.date)}</span><span class="small">${formatSetValue(h.set, h.metric)}</span></div>
+          `).join("")}</div>`;
+    }
 
     return `
       <div class="view">
         <button class="btn sm ghost" data-back-progress style="align-self:flex-start">${icon("back")} Back</button>
         <div class="card">
-          <div class="row" style="align-items:center;margin-bottom:4px">
-            <h2 style="margin:0">${esc(ex.name)}</h2>
-          </div>
+          <div class="row" style="align-items:center;margin-bottom:4px"><h2 style="margin:0">${esc(ex.name)}</h2></div>
           ${photoHTML}
-          <div class="small muted" style="margin-bottom:10px">${esc(ex.muscleGroups.join(", "))}</div>
+          <div class="small muted" style="margin-bottom:10px">${esc(ex.muscleGroups.join(", "))}${metric !== "weight_reps" ? ` · ${metricLabel(metric)}` : ""}</div>
           ${deletedNote}
-          <div class="btn-row" style="margin-bottom:12px">
-            ${best ? `<span class="pill good">Best: ${best.weight}kg × ${best.reps} <span class="muted">(~${Math.round(best.orm)}kg 1RM)</span> · ${fmtDate(best.date)}</span>` : ""}
-            ${delta !== null ? `<span class="pill ${delta >= 0 ? "good" : "bad"}">${delta >= 0 ? "+" : ""}${delta}% since first log</span>` : ""}
-          </div>
-          ${variationRows}
-          ${history.length > 1 ? `<div class="small muted" style="margin-bottom:2px">Estimated 1RM trend</div>${sparkline(history.map((h) => h.orm))}` : ""}
-          ${history.length > 1 ? `<div class="small muted" style="margin:10px 0 2px">Session volume (weight × reps)</div>${sparkline(history.map((h) => h.volume))}` : ""}
-          ${history.length === 0 ? `<div class="empty">No sets logged for this exercise yet.</div>` :
-            `<div style="margin-top:10px">${history.slice().reverse().map((h) => `
-              <div class="row"><span class="small">${fmtDate(h.date)}</span><span class="small">${h.weight}kg × ${h.reps} <span class="muted">(~${Math.round(h.orm)}kg 1RM)</span></span></div>
-            `).join("")}</div>`}
+          ${strengthHTML}
+          ${genericHTML}
+          ${history.length === 0 && generic.length === 0 ? `<div class="empty">No sets logged for this exercise yet.</div>` : ""}
         </div>
       </div>
     `;
@@ -1362,7 +1576,11 @@
     const min = rawMin - pad, max = rawMax + pad;
     const range = max - min || 1;
 
-    const xAt = (i) => padX + (points.length === 1 ? (w - padX * 2) / 2 : (i / (points.length - 1)) * (w - padX * 2));
+    // x is proportional to elapsed time, not to index — a year-old weigh-in
+    // and one from last week must not sit next to each other.
+    const dayMs = (dateStr) => new Date(dateStr + "T00:00:00").getTime();
+    const t0 = dayMs(points[0].date), tSpan = Math.max(1, dayMs(points[points.length - 1].date) - t0);
+    const xAt = (i) => padX + (points.length === 1 ? (w - padX * 2) / 2 : ((dayMs(points[i].date) - t0) / tSpan) * (w - padX * 2));
     const yAt = (v) => padTop + (1 - (v - min) / range) * (h - padTop - padBottom);
 
     const linePts = points.map((p, i) => `${xAt(i)},${yAt(p.weight)}`).join(" ");
@@ -1375,7 +1593,15 @@
         <text x="${padX}" y="${y - 4}" font-size="9" fill="var(--text-dim)">${v.toFixed(1)}</text>`;
     }).join("");
 
-    const labelIdxs = points.length > 2 ? [0, Math.floor((points.length - 1) / 2), points.length - 1] : points.map((_, i) => i);
+    // Date labels: first, last, and whichever point sits nearest the middle
+    // of the axis — as long as it's clear of both ends.
+    let midIdx = -1, midDist = Infinity;
+    for (let i = 1; i < points.length - 1; i++) {
+      const d = Math.abs(xAt(i) - w / 2);
+      if (d < midDist) { midDist = d; midIdx = i; }
+    }
+    const midOk = midIdx > 0 && xAt(midIdx) - padX > 60 && (w - padX) - xAt(midIdx) > 60;
+    const labelIdxs = points.length > 2 ? (midOk ? [0, midIdx, points.length - 1] : [0, points.length - 1]) : points.map((_, i) => i);
     const xLabels = labelIdxs.map((i) => {
       const anchor = i === 0 ? "start" : i === points.length - 1 ? "end" : "middle";
       return `<text x="${xAt(i)}" y="${h - 6}" font-size="9.5" fill="var(--text-dim)" text-anchor="${anchor}">${fmtShortDate(points[i].date)}</text>`;
@@ -1457,12 +1683,12 @@
 
   function strengthIndexCard() {
     const { overallSeries, byMuscle } = computeStrengthIndex(state.sessions, state.exercises);
-    const latest = overallSeries.length ? Math.round(overallSeries[overallSeries.length - 1].value) : null;
+    const latest = overallSeries.length > 1 ? Math.round(overallSeries[overallSeries.length - 1].value) : null;
     const delta = latest !== null ? latest - 100 : null;
 
     const breakdown = state.muscleGroups.map((mg) => mg.name).filter((mg) => !NON_STRENGTH_GROUPS.includes(mg)).map((mg) => {
       const series = byMuscle[mg];
-      const d = series && series.length ? Math.round(series[series.length - 1].value - 100) : null;
+      const d = series && series.length > 1 ? Math.round(series[series.length - 1].value - 100) : null;
       return { mg, delta: d };
     }).sort((a, b) => {
       if (a.delta === null) return 1;
@@ -1496,27 +1722,29 @@
 
   // Shared by the Protein tab and the Progress tab's protein visualization
   function computeProteinWeek() {
+    // Daily totals once, rather than re-filtering the whole log per day.
+    const totals = {};
+    for (const p of state.protein) totals[p.date] = (totals[p.date] || 0) + p.amount;
+
     const days = [];
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
       const ds = dateKey(d);
-      const total = state.protein.filter((p) => p.date === ds).reduce((a, p) => a + p.amount, 0);
-      days.push({ ds, total, label: d.toLocaleDateString(undefined, { weekday: "narrow" }) });
+      days.push({ ds, total: totals[ds] || 0, label: d.toLocaleDateString(undefined, { weekday: "narrow" }) });
     }
     const maxBar = Math.max(state.proteinGoal, ...days.map((d) => d.total), 1);
 
     // Consecutive days at/above goal counting back from today. Today only
     // joins the count once it's actually been hit — otherwise every streak
-    // would read 0 each morning until that day's protein was logged.
+    // would read 0 each morning until that day's protein was logged. The
+    // loop ends at the first miss; the ceiling is only a guard.
     let streak = 0;
     const todayHit = days[days.length - 1].total >= state.proteinGoal;
-    for (let i = todayHit ? 0 : 1; i <= 366; i++) {
+    for (let i = todayHit ? 0 : 1; i <= 36500; i++) {
       const d = new Date();
       d.setDate(d.getDate() - i);
-      const ds = dateKey(d);
-      const total = state.protein.filter((p) => p.date === ds).reduce((a, p) => a + p.amount, 0);
-      if (total >= state.proteinGoal) streak++;
+      if ((totals[dateKey(d)] || 0) >= state.proteinGoal) streak++;
       else break;
     }
     return { days, maxBar, streak };
@@ -1544,7 +1772,7 @@
       <div class="view">
         <div class="card">
           <h2>Today</h2>
-          <div style="font-size:28px;font-weight:800">${totalToday}g <span class="muted" style="font-size:15px;font-weight:600">/ ${state.proteinGoal}g goal</span></div>
+          <div style="font-size:28px;font-weight:800">${fmtNum(totalToday)}g <span class="muted" style="font-size:15px;font-weight:600">/ ${state.proteinGoal}g goal</span></div>
           ${week.streak > 0 ? `<div class="pill good" style="margin-top:8px">${week.streak}-day streak</div>` : ""}
           <div class="field" style="margin-top:14px">
             <label>Add protein (g)</label>
@@ -1629,7 +1857,7 @@
             `).join("")}
           </div>`}
           <div class="row" style="gap:6px">
-            <input type="text" id="new-muscle-name" placeholder="e.g. Forearms" style="flex:1" />
+            <input type="text" id="new-muscle-name" placeholder="e.g. Forearms" maxlength="30" style="flex:1" />
             <input type="number" inputmode="numeric" id="new-muscle-freq" placeholder="x/wk" value="2" min="1" max="14" style="width:64px" />
             <button class="btn primary sm" id="add-muscle-btn">Add</button>
           </div>
@@ -1687,7 +1915,7 @@
         ${trainFormOpen ? `<div class="small muted" style="margin-bottom:8px">Saved to your library and added to this workout.</div>` : ""}
         <div class="field">
           <label>Exercise name</label>
-          <input type="text" id="new-exercise-name" placeholder="e.g. Tricep Pushdown" value="${esc(formNameValue)}" />
+          <input type="text" id="new-exercise-name" placeholder="e.g. Tricep Pushdown" maxlength="60" value="${esc(formNameValue)}" />
         </div>
         <div class="field">
           <label>Track by</label>
@@ -1699,7 +1927,7 @@
           <label>Muscle group(s)</label>
           ${state.muscleGroups.length === 0 ? `<div class="small muted">No muscle groups yet — add some in Settings first.</div>` : `
           <div class="chip-row" id="new-exercise-muscles">
-            ${state.muscleGroups.map((mg) => `<span class="chip${selectedMuscles.includes(mg.name) ? " selected" : ""}" data-muscle="${esc(mg.name)}">${esc(mg.name)}</span>`).join("")}
+            ${Array.from(new Set(state.muscleGroups.map((mg) => mg.name).concat(selectedMuscles))).map((name) => `<span class="chip${selectedMuscles.includes(name) ? " selected" : ""}" data-muscle="${esc(name)}">${esc(name)}</span>`).join("")}
           </div>`}
         </div>
         <div class="field">
@@ -1708,7 +1936,7 @@
             ${formVariations.map((vName, i) => `<span class="chip selected" data-remove-variation="${i}">${esc(vName)} ✕</span>`).join("")}
           </div>` : ""}
           <div class="row" style="gap:6px">
-            <input type="text" id="new-variation-input" placeholder="e.g. Straight bar, Rope, One-handed" />
+            <input type="text" id="new-variation-input" placeholder="e.g. Straight bar, Rope, One-handed" maxlength="30" />
             <button class="btn sm" id="add-variation-btn">Add</button>
           </div>
         </div>
@@ -1796,7 +2024,17 @@
     else renderSettingsExtra();
   }
 
+  // One click at a time: most handlers below await IndexedDB, and a quick
+  // double-tap on Add/Save used to run the handler twice and create
+  // duplicate exercises or muscle groups.
+  let clickBusy = false;
   appEl.addEventListener("click", async (e) => {
+    if (clickBusy) return;
+    clickBusy = true;
+    try { await handleClick(e); } finally { clickBusy = false; }
+  });
+
+  async function handleClick(e) {
     const t = e.target;
 
     const navBtn = t.closest("[data-nav]");
@@ -1822,14 +2060,12 @@
     if (restBtn) { startRest(Number(restBtn.dataset.rest)); return; }
 
     if (t.id === "add-custom-protein") {
-      const input = document.getElementById("custom-protein-amount");
-      const val = Number(input.value);
-      if (val > 0) {
-        await Repo.addProtein(val);
-        state.protein = await Repo.listProtein();
-        render();
-        toast("Logged " + val + "g protein");
-      }
+      const val = readPositive(document.getElementById("custom-protein-amount"), PROTEIN_MAX, "Protein");
+      if (val === null) return;
+      await Repo.addProtein(val);
+      state.protein = await Repo.listProtein();
+      render();
+      toast("Logged " + val + "g protein");
       return;
     }
     const delP = t.closest("[data-del-protein]");
@@ -1842,31 +2078,32 @@
 
     // Body weight
     if (t.id === "save-bodyweight") {
-      const val = Number(document.getElementById("bodyweight-input").value);
-      if (val > 0) {
-        await Repo.setBodyweight(todayStr(), val);
-        state.bodyweight = await Repo.listBodyweight();
-        render();
-        toast("Weight logged");
-      }
+      const val = readPositive(document.getElementById("bodyweight-input"), BODYWEIGHT_MAX, "Weight");
+      if (val === null) return;
+      await Repo.setBodyweight(todayStr(), val);
+      state.bodyweight = await Repo.listBodyweight();
+      render();
+      toast("Weight logged");
       return;
     }
     if (t.id === "save-weight-goal") {
-      const raw = document.getElementById("weight-goal-input").value.trim();
-      if (raw === "") {
+      const input = document.getElementById("weight-goal-input");
+      // A number input reports text like "abc" as an empty value plus
+      // badInput — don't mistake that for a deliberate clear.
+      if (input.validity && input.validity.badInput) { toast("Goal: enter a number"); return; }
+      if (input.value.trim() === "") {
         await Repo.setSetting("weightGoal", null);
         state.weightGoal = null;
         render();
         toast("Goal cleared");
         return;
       }
-      const val = Number(raw);
-      if (val > 0) {
-        await Repo.setSetting("weightGoal", val);
-        state.weightGoal = val;
-        render();
-        toast("Goal updated");
-      }
+      const val = readPositive(input, BODYWEIGHT_MAX, "Goal");
+      if (val === null) return;
+      await Repo.setSetting("weightGoal", val);
+      state.weightGoal = val;
+      render();
+      toast("Goal updated");
       return;
     }
     const delBw = t.closest("[data-del-bodyweight]");
@@ -1923,7 +2160,7 @@
       render();
       let msg = "Session saved";
       if (prCount > 0) msg += ` — ${prCount} new PR${prCount > 1 ? "s" : ""}!`;
-      else if (skipped > 0) msg += ` · ${skipped} exercise${skipped > 1 ? "s" : ""} with no sets skipped`;
+      if (skipped > 0) msg += ` (${skipped} exercise${skipped > 1 ? "s" : ""} with no sets skipped)`;
       toast(msg, prCount > 0);
       return;
     }
@@ -2008,7 +2245,7 @@
       const nameInput = document.getElementById("new-muscle-name");
       const freqInput = document.getElementById("new-muscle-freq");
       const name = nameInput.value.trim();
-      const frequency = Math.max(1, Number(freqInput.value) || DEFAULT_FREQUENCY);
+      const frequency = clampFrequency(freqInput.value);
       if (!name) { toast("Enter a muscle group name"); return; }
       if (state.muscleGroups.some((mg) => mg.name.toLowerCase() === name.toLowerCase())) { toast("Already in your list"); return; }
       await Repo.addMuscleGroup(name, frequency);
@@ -2031,6 +2268,7 @@
     // Settings: exercises
     if (t.id === "add-custom-exercise-btn") {
       customExerciseOpen = !customExerciseOpen;
+      trainFormOpen = false;
       resetExerciseForm();
       renderSettingsExtra();
       return;
@@ -2039,6 +2277,7 @@
     if (editEx) {
       const ex = state.exercises.find((x) => x.id === editEx.dataset.editExercise);
       if (ex) {
+        trainFormOpen = false;
         resetExerciseForm();
         editingExerciseId = ex.id;
         formNameValue = ex.name;
@@ -2087,9 +2326,18 @@
       const name = document.getElementById("new-exercise-name").value.trim();
       if (!name) { toast("Enter an exercise name"); return; }
       if (selectedMuscles.length === 0) { toast("Pick at least one muscle group"); return; }
+      if (state.exercises.some((x) => x.id !== editingExerciseId && x.name.toLowerCase() === name.toLowerCase())) {
+        toast("Already in your library"); return;
+      }
       let exerciseId;
       if (editingExerciseId) {
         const existing = state.exercises.find((x) => x.id === editingExerciseId);
+        if (!existing) {
+          // Deleted (or erased) while the edit form was open
+          toast("That exercise no longer exists");
+          customExerciseOpen = false; trainFormOpen = false; resetExerciseForm(); render();
+          return;
+        }
         await Repo.updateExercise(Object.assign({}, existing, {
           name, muscleGroups: selectedMuscles.slice(), variations: formVariations.slice(), metric: formMetric
         }));
@@ -2116,10 +2364,11 @@
           // Let them pick which variation they're doing right now
           pickingVariationFor = newEx.id;
           render();
+          toast("Added to library — pick a variation to add it");
         } else if (newEx) {
           addEntryToSession(newEx, "");
+          toast("Added to library + workout");
         }
-        toast("Added to library + workout");
         return;
       }
       render();
@@ -2129,6 +2378,7 @@
     const delEx = t.closest("[data-del-exercise]");
     if (delEx) {
       if (confirm("Delete this exercise? Past sessions keep their logged history.")) {
+        if (editingExerciseId === delEx.dataset.delExercise) { customExerciseOpen = false; resetExerciseForm(); }
         await Repo.deleteExercise(delEx.dataset.delExercise);
         await Repo.deletePhoto(delEx.dataset.delExercise);
         state.exercises = await Repo.listExercises();
@@ -2146,13 +2396,12 @@
     }
 
     if (t.id === "save-protein-goal") {
-      const val = Number(document.getElementById("protein-goal-input").value);
-      if (val > 0) {
-        await Repo.setSetting("proteinGoal", val);
-        state.proteinGoal = val;
-        toast("Goal updated");
-        render();
-      }
+      const val = readPositive(document.getElementById("protein-goal-input"), PROTEIN_MAX, "Goal");
+      if (val === null) return;
+      await Repo.setSetting("proteinGoal", val);
+      state.proteinGoal = val;
+      toast("Goal updated");
+      render();
       return;
     }
 
@@ -2174,13 +2423,18 @@
     if (t.id === "clear-all-data") {
       if (confirm("This erases ALL local data (sessions, protein log, custom exercises). This cannot be undone. Continue?")) {
         await Repo.clearAll();
+        // Everything in memory referred to data that no longer exists
+        state.activeSession = null;
+        addExerciseOpen = false; pickingVariationFor = null; trainFormOpen = false; customExerciseOpen = false;
+        resetExerciseForm();
+        stopRest(true);
         await loadAll();
         render();
         toast("All data cleared");
       }
       return;
     }
-  });
+  }
 
   // input listeners (change, not click) — set weight/reps and file import
   appEl.addEventListener("change", async (e) => {
@@ -2188,7 +2442,8 @@
     const freqInput = t.closest("[data-muscle-freq]");
     if (freqInput) {
       const mg = state.muscleGroups.find((m) => m.id === freqInput.dataset.muscleFreq);
-      const frequency = Math.max(1, Number(freqInput.value) || DEFAULT_FREQUENCY);
+      const frequency = clampFrequency(freqInput.value);
+      freqInput.value = frequency; // show what was actually saved
       if (mg) {
         await Repo.updateMuscleGroup(Object.assign({}, mg, { frequency }));
         state.muscleGroups = await Repo.listMuscleGroups();
@@ -2196,15 +2451,17 @@
       return;
     }
     if (t.id === "import-file-input" && t.files[0]) {
-      const text = await t.files[0].text();
+      const file = t.files[0];
+      t.value = ""; // so picking the same file again still fires change
       try {
-        const data = JSON.parse(text);
-        await Repo.importAll(data);
+        const data = JSON.parse(await file.text());
+        const r = await Repo.importAll(data);
         await loadAll();
         render();
-        toast("Backup imported");
+        const dup = r.skippedGroups ? ` · ${r.skippedGroups} muscle group${r.skippedGroups > 1 ? "s" : ""} already existed` : "";
+        toast(`Imported ${r.sessions} session${r.sessions === 1 ? "" : "s"}, ${r.exercises} exercise${r.exercises === 1 ? "" : "s"}${dup}`);
       } catch (err) {
-        toast("Import failed — invalid file");
+        toast(err && /not a We Go Gym backup/.test(err.message) ? "Import failed — not a We Go Gym backup" : "Import failed — invalid file");
       }
       return;
     }
@@ -2231,7 +2488,10 @@
       return;
     }
     const setField = t.closest("[data-set-field]");
-    if (setField) { applySetField(setField); return; }
+    if (setField) {
+      if (!applySetField(setField)) { setField.value = ""; toast("Sets need a positive number"); }
+      return;
+    }
   });
 
   // live updates: exercise search filter, and set inputs (see applySetField)
@@ -2275,16 +2535,21 @@
     try {
       await Repo.init();
       await loadAll();
-      // Resume a workout that was in progress when the page last unloaded.
-      const draft = await Repo.getSetting(ACTIVE_SESSION_KEY, null);
-      if (draft && Array.isArray(draft.entries)) state.activeSession = draft;
+      // Resume a workout that was in progress when the page last unloaded —
+      // after the same shape checks as a stored session, so a corrupt draft
+      // can't come back as "Invalid Date / NaN min".
+      const draft = Repo.normalizeSession(await Repo.getSetting(ACTIVE_SESSION_KEY, null));
+      if (draft) {
+        draft.entries.forEach((entry) => { if (entry.sets.length === 0) entry.sets.push(emptySet(entry.metric)); });
+        state.activeSession = draft;
+      }
+      render();
     } catch (err) {
       // Without this the app would sit on "Loading…" forever (e.g. IndexedDB
       // blocked in some private-browsing modes, or a failed upgrade).
-      appEl.innerHTML = `<div class="empty" style="padding-top:60px">Couldn't open local storage.<br><span class="small">${esc(err && err.message ? err.message : err)}</span><br><br>Private browsing can block it — try a normal tab, or reload.</div>`;
+      appEl.innerHTML = `<div class="empty" style="padding-top:60px">Couldn't load the app.<br><span class="small">${esc(err && err.message ? err.message : err)}</span><br><br>If you're in private browsing, try a normal tab. Otherwise reload — and if it keeps happening, restore from a backup after Erase all data.</div>`;
       return;
     }
-    render();
 
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("sw.js").catch(() => {});

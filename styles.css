@@ -195,7 +195,7 @@ input, select, textarea {
   color: var(--text);
   border-radius: 10px;
   padding: 10px 12px;
-  font-size: 15px;
+  font-size: 16px; /* 16px stops iOS Safari zooming in on focus, without disabling pinch-zoom */
   font-family: inherit;
 }
 
@@ -326,11 +326,13 @@ label {
 .ring-label .lbl { font-size: 9.5px; color: var(--text-dim); }
 
 /* Bars for weekly protein */
+/* 56px max bar + 4px gap + 12px day label; anything less and flexbox
+   shrinks the tallest bars so a 150g and a 160g day look identical. */
 .bars {
   display: flex;
   align-items: flex-end;
   gap: 6px;
-  height: 60px;
+  height: 74px;
 }
 .bars .bar-col {
   flex: 1;
@@ -355,6 +357,7 @@ label {
   align-items: center;
   gap: 10px;
 }
+.rotation-item > .small { overflow-wrap: anywhere; }
 .rotation-item .bar-track {
   flex: 1;
   height: 6px;
