@@ -1309,7 +1309,7 @@
           return `
           <div class="set-row${fields.length === 1 ? " single" : ""}">
             <span class="idx">${si + 1}</span>
-            ${fields.map((f) => `<input type="number" min="0" max="${SET_VALUE_MAX}" inputmode="${f.inputMode}" placeholder="${ghost && ghost[f.key] ? ghost[f.key] : f.placeholder}" value="${set[f.key] || ""}" data-set-field="${ei}:${si}:${f.key}" />`).join("")}
+            ${fields.map((f) => `<span class="set-field"><input type="number" min="0" max="${SET_VALUE_MAX}" inputmode="${f.inputMode}" placeholder="${ghost && ghost[f.key] ? ghost[f.key] : ""}" value="${set[f.key] || ""}" data-set-field="${ei}:${si}:${f.key}" aria-label="${f.unit}" /><span class="unit">${f.unit}</span></span>`).join("")}
             <button class="del" data-remove-set="${ei}:${si}" aria-label="remove set">×</button>
           </div>
           <div data-set-hint="${ei}:${si}">${setHintHTML(set, best)}</div>

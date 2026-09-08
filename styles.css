@@ -391,6 +391,20 @@ label {
 .set-row.single {
   grid-template-columns: 28px 1fr 32px;
 }
+/* Unit label ("kg", "reps", "min", "km") sits inside the input on the
+   right, so what the number measures is always visible next to it. */
+.set-row .set-field { position: relative; min-width: 0; }
+.set-row .set-field input { padding-right: 46px; width: 100%; }
+.set-row .set-field .unit {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  pointer-events: none;
+}
 .set-row .idx {
   color: var(--text-dim);
   font-size: 12px;

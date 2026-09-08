@@ -383,3 +383,11 @@ measurement tag is gone from the workout screen: the set row already shows
 a single reps, min, or km box, which says the same thing. The measurement
 type is still listed in grey in the picker, in Settings, and on the
 exercise's detail screen.
+
+## 16. Units shown inside each set box  (8 Sep 2026)
+
+Every set input now shows its unit on the right, inside the box: kg and
+reps for lifts, reps for bodyweight exercises, min for time, km for
+distance. It stays visible while you type, so "8" reads as "8 reps"
+without a separate tag. Last session's numbers still appear as grey
+placeholders when the box is empty.
