@@ -151,6 +151,11 @@ html, body {
   background: var(--surface-2);
   color: var(--text);
   border: 1px solid var(--border);
+  /* Never let a button shrink or wrap its label: inputs beside it are
+     width:100%, and without this a narrow phone squeezed "Save" into
+     "Sav / e". The input gives way instead. */
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .btn { transition: transform 0.1s ease, filter 0.15s ease, box-shadow 0.15s ease; }

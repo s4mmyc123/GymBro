@@ -1719,16 +1719,14 @@
       <div class="view">
         <div class="card">
           <h2>Body weight</h2>
-          <div class="row" style="align-items:flex-end;margin-bottom:2px">
-            <div>
-              <div style="font-size:30px;font-weight:800">${latest ? latest.weight + "kg" : "—"}</div>
-              ${delta !== null ? `<span class="pill">${delta > 0 ? "+" : ""}${delta}kg${pct !== null ? ` (${pct > 0 ? "+" : ""}${pct}%)` : ""} over selected range</span>` : ""}
-            </div>
+          <div class="row" style="align-items:center;margin-bottom:2px">
+            <div style="font-size:30px;font-weight:800">${latest ? latest.weight + "kg" : "—"}</div>
             <div style="display:flex;gap:6px;align-items:center">
               <input type="number" inputmode="decimal" step="0.1" id="bodyweight-input" placeholder="kg" value="${todayEntry ? todayEntry.weight : ""}" style="width:88px" />
               <button class="btn primary sm" id="save-bodyweight">${todayEntry ? "Update" : "Log"}</button>
             </div>
           </div>
+          ${delta !== null ? `<div style="margin:4px 0 2px"><span class="pill">${delta > 0 ? "+" : ""}${delta}kg${pct !== null ? ` (${pct > 0 ? "+" : ""}${pct}%)` : ""} over selected range</span></div>` : ""}
           <div class="row" style="margin:10px 0;align-items:center">
             <span class="small muted">${state.weightGoal ? `Goal: ${state.weightGoal}kg${latest ? ` · ${Math.abs(Math.round((latest.weight - state.weightGoal) * 10) / 10)}kg to go` : ""}` : "No goal weight set"}</span>
             <div style="display:flex;gap:6px;align-items:center">

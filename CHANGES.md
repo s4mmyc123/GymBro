@@ -352,3 +352,13 @@ orange accent instead of green, whenever a workout is in progress.
 "+ Add set" no longer copies the previous set's weight and reps into the
 new row. The row starts empty; last session's numbers remain visible as
 grey placeholders for reference only.
+
+## 13. Buttons no longer squash beside inputs  (8 Sep 2026)
+
+On a phone the Save and Add buttons next to full-width inputs (Settings
+protein goal, Protein tab, Home) were squeezed until their labels wrapped
+into "Sav / e" and "Ad / d", and the Weight tab's Update button became a
+vertical column of letters. Buttons now never shrink or wrap; the input
+beside them gives way instead. The Weight tab's change-over-range pill
+moved to its own line under the big number so it no longer collides with
+the input.
