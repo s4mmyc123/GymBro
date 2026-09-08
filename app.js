@@ -1294,7 +1294,7 @@
     return `
       <div class="exercise-block" data-entry="${ei}">
         <div class="ex-title">
-          <strong style="display:flex;align-items:center;gap:8px">${photoThumb(entry.exerciseId, 28)}${esc(exerciseDisplayName(entry.exerciseId, entry.exerciseName))}${v ? `<span class="variation-tag">${esc(v)}</span>` : ""}${!isStrength ? `<span class="variation-tag">${metricLabel(metric)}</span>` : ""}</strong>
+          <strong style="display:flex;align-items:center;gap:8px">${photoThumb(entry.exerciseId, 28)}${esc(exerciseDisplayName(entry.exerciseId, entry.exerciseName))}${v ? `<span class="variation-tag">${esc(v)}</span>` : ""}</strong>
           <button class="btn sm danger" data-remove-exercise="${ei}">Remove</button>
         </div>
         <div class="small muted" style="margin-bottom:8px">${esc((entry.muscleGroups || []).join(", "))}</div>

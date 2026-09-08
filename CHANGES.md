@@ -373,3 +373,13 @@ container. In a workout the exercise name stays whole and the variation
 tag moves to its own line when the row is tight. A scan of Home, Train,
 Progress, Settings, and the picker at phone width found no remaining split
 words and no sideways overflow.
+
+## 15. The orange tag means the variation, only  (8 Sep 2026)
+
+In a workout the orange tag next to an exercise name showed either the
+variation you picked or, for exercises not tracked by weight × reps, the
+measurement type ("Reps only (bodyweight)"). Two meanings in one style. The
+measurement tag is gone from the workout screen: the set row already shows
+a single reps, min, or km box, which says the same thing. The measurement
+type is still listed in grey in the picker, in Settings, and on the
+exercise's detail screen.
