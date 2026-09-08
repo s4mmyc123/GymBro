@@ -25,3 +25,6 @@ node_modules/
 we-go-gym-backup-*.json
 *.backup.json
 exports/
+
+# Local-only planning notes
+CHANGES-BACKLOG.md
