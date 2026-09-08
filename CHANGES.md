@@ -391,3 +391,14 @@ reps for lifts, reps for bodyweight exercises, min for time, km for
 distance. It stays visible while you type, so "8" reads as "8 reps"
 without a separate tag. Last session's numbers still appear as grey
 placeholders when the box is empty.
+
+## 17. Protein tracking removed  (8 Sep 2026)
+
+The Protein tab, the Today's protein card on Home, the protein chart on
+Progress, and the protein goal in Settings are gone, along with the quick
+add chips, the streak, and the ring. The database moves to version 3,
+which deletes the protein store and the stored goal on first open, so no
+protein data remains on the device. Backups no longer include protein;
+an older backup that still has a protein section imports fine with that
+section ignored. The nav now has five tabs. Descriptions in the README,
+manifest, and page metadata were updated to match.

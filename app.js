@@ -39,7 +39,6 @@
   // Sanity ceilings for user-entered numbers. Generous on purpose — they only
   // exist to stop a stray "1e9" from wrecking every chart and total.
   const SET_VALUE_MAX = 10000;   // kg, reps, minutes or km per set
-  const PROTEIN_MAX = 5000;      // grams per entry, and for the daily goal
   const BODYWEIGHT_MAX = 1000;   // kg, for weigh-ins and the goal
   const NAME_MAX = 60;           // exercise names (input maxlength; imports are cut to match)
   const TAG_MAX = 30;            // muscle group and variation names
@@ -96,7 +95,7 @@
   }
 
   const DB_NAME = "ironLogDB";
-  const DB_VERSION = 2;
+  const DB_VERSION = 3; // v3: protein tracking removed — the store is deleted on upgrade
   const ACTIVE_SESSION_KEY = "activeSession"; // settings-store key for the in-progress workout draft
 
   // Local calendar date as YYYY-MM-DD. toISOString() would give the *UTC*
@@ -135,9 +134,8 @@
             const s = db.createObjectStore("sessions", { keyPath: "id" });
             s.createIndex("date", "date");
           }
-          if (!db.objectStoreNames.contains("protein")) {
-            const p = db.createObjectStore("protein", { keyPath: "id" });
-            p.createIndex("date", "date");
+          if (db.objectStoreNames.contains("protein")) {
+            db.deleteObjectStore("protein"); // feature removed; its data goes with it
           }
           if (!db.objectStoreNames.contains("settings")) {
             db.createObjectStore("settings", { keyPath: "key" });
@@ -188,11 +186,6 @@
     }
     function get(store, key) {
       return tx(store, "readonly").then((os) => reqToPromise(os.get(key)));
-    }
-
-    async function ensureSeeded() {
-      const goal = await get("settings", "proteinGoal");
-      if (!goal) await put("settings", { key: "proteinGoal", value: 150 });
     }
 
     // One-time cleanup: remove the old pre-seeded exercise library so the
@@ -310,17 +303,6 @@
       });
     }
 
-    function normalizeProtein(pr) {
-      if (!pr || !isStr(pr.id) || !isDateKey(pr.date)) return null;
-      const amount = posNum(pr.amount, PROTEIN_MAX);
-      if (amount === null) return null;
-      return Object.assign({}, pr, {
-        amount,
-        note: isStr(pr.note) ? pr.note : "",
-        loggedAt: Number(pr.loggedAt) || new Date(pr.date + "T00:00:00").getTime()
-      });
-    }
-
     function normalizeBodyweight(bw) {
       if (!bw || !isDateKey(bw.date)) return null;
       const weight = posNum(bw.weight, BODYWEIGHT_MAX);
@@ -330,14 +312,13 @@
 
     // Which settings a backup may carry, and what a valid value looks like.
     const SETTING_VALID = {
-      proteinGoal: (v) => posNum(v, PROTEIN_MAX) !== null,
       weightGoal: (v) => v === null || posNum(v, BODYWEIGHT_MAX) !== null,
       builtinsCleared: (v) => typeof v === "boolean",
       muscleGroupsSeeded: (v) => typeof v === "boolean"
     };
 
     return {
-      init: () => open().then(ensureSeeded).then(clearBuiltinExercises).then(migrateLegacyMuscleGroups).then(ensureMuscleGroupsSeeded),
+      init: () => open().then(clearBuiltinExercises).then(migrateLegacyMuscleGroups).then(ensureMuscleGroupsSeeded).then(() => del("settings", "proteinGoal")),
       normalizeSession,
 
       // Muscle groups — fully user-managed (see Settings)
@@ -364,11 +345,6 @@
       saveSession: (session) => put("sessions", session),
       deleteSession: (id) => del("sessions", id),
 
-      // Protein
-      listProtein: () => getAll("protein").then((l) => l.map(normalizeProtein).filter(Boolean).sort((a, b) => b.loggedAt - a.loggedAt)),
-      addProtein: (amount, note) => put("protein", { id: uid(), date: todayStr(), amount, note: note || "", loggedAt: Date.now() }),
-      deleteProtein: (id) => del("protein", id),
-
       // Settings
       getSetting: (key, fallback) => get("settings", key).then((r) => (r ? r.value : fallback)),
       setSetting: (key, value) => put("settings", { key, value }),
@@ -386,8 +362,8 @@
 
       // Export / Import (manual backup today; becomes the seed for real sync later)
       async exportAll() {
-        const [exercises, sessions, protein, photos, bodyweight, muscleGroups] = await Promise.all([
-          getAll("exercises"), getAll("sessions"), getAll("protein"), getAll("photos"), getAll("bodyweight"), getAll("muscleGroups")
+        const [exercises, sessions, photos, bodyweight, muscleGroups] = await Promise.all([
+          getAll("exercises"), getAll("sessions"), getAll("photos"), getAll("bodyweight"), getAll("muscleGroups")
         ]);
         // The in-progress workout draft is device state, not data worth backing up.
         const settingsList = (await getAll("settings")).filter((s) => s.key !== ACTIVE_SESSION_KEY);
@@ -397,14 +373,15 @@
           reader.onload = () => resolve({ exerciseId: p.exerciseId, dataUrl: reader.result });
           reader.readAsDataURL(p.blob);
         })));
-        return { exportedAt: new Date().toISOString(), exercises, sessions, protein, settings: settingsList, photos: photosEncoded, bodyweight, muscleGroups };
+        return { exportedAt: new Date().toISOString(), exercises, sessions, settings: settingsList, photos: photosEncoded, bodyweight, muscleGroups };
       },
       // Import is a merge: records are matched by id, and muscle groups also
       // by name (the seeded defaults after an Erase would otherwise come back
       // twice). Everything is validated and decoded first, then written in a
       // single transaction — a bad file either imports completely or not at all.
       async importAll(data) {
-        const STORES = ["exercises", "sessions", "protein", "settings", "bodyweight", "muscleGroups", "photos"];
+        const STORES = ["exercises", "sessions", "settings", "bodyweight", "muscleGroups", "photos"];
+        // Backups from before v3 may carry a "protein" array; it is ignored.
         if (!data || typeof data !== "object" || Array.isArray(data) || !STORES.some((k) => Array.isArray(data[k]))) {
           throw new Error("not a We Go Gym backup");
         }
@@ -412,7 +389,6 @@
 
         const exercises = arr("exercises").map(normalizeExercise).filter(Boolean).map((e) => Object.assign(e, { isCustom: true }));
         const sessions = arr("sessions").map(normalizeSession).filter(Boolean);
-        const protein = arr("protein").map(normalizeProtein).filter(Boolean);
         const bodyweight = arr("bodyweight").map(normalizeBodyweight).filter(Boolean);
         const settings = arr("settings")
           .filter((x) => x && isStr(x.key) && SETTING_VALID[x.key] && SETTING_VALID[x.key](x.value))
@@ -454,22 +430,21 @@
           tx.onerror = () => reject(tx.error);
           tx.onabort = () => reject(tx.error || new Error("import aborted"));
           const write = (store, list) => { const os = tx.objectStore(store); for (const r of list) os.put(r); };
-          write("exercises", exercises); write("sessions", sessions); write("protein", protein);
+          write("exercises", exercises); write("sessions", sessions);
           write("settings", settings); write("bodyweight", bodyweight); write("muscleGroups", muscleGroups);
           write("photos", photos);
         });
-        return { exercises: exercises.length, sessions: sessions.length, protein: protein.length, bodyweight: bodyweight.length, muscleGroups: muscleGroups.length - updatedGroups, updatedGroups, photos: photos.length, settings: settings.length };
+        return { exercises: exercises.length, sessions: sessions.length, bodyweight: bodyweight.length, muscleGroups: muscleGroups.length - updatedGroups, updatedGroups, photos: photos.length, settings: settings.length };
       },
       async clearAll() {
         const db = await open();
-        const stores = ["exercises", "sessions", "protein", "settings", "photos", "bodyweight", "muscleGroups"];
+        const stores = ["exercises", "sessions", "settings", "photos", "bodyweight", "muscleGroups"];
         await new Promise((resolve, reject) => {
           const tx = db.transaction(stores, "readwrite");
           tx.oncomplete = () => resolve();
           tx.onerror = () => reject(tx.error);
           for (const store of stores) tx.objectStore(store).clear();
         });
-        await ensureSeeded();
         // The one-time "remove old built-in exercises" cleanup must not run
         // again on this now-empty library, or it would delete anything
         // imported next that happens to lack an isCustom flag.
@@ -953,7 +928,6 @@
       home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5 12 3l9 6.5V21a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z"/></svg>',
       train: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 6.5v11M17.5 6.5v11M2 10v4M22 10v4M6.5 12h11"/></svg>',
       chart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V9M12 19V5M20 19v-7"/></svg>',
-      drop: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11Z"/></svg>',
       gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>',
       plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
       back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>',
@@ -975,13 +949,11 @@
     { key: "all", label: "All", days: Infinity }
   ];
 
-  const routes = ["home", "train", "progress", "protein", "weight", "settings"];
+  const routes = ["home", "train", "progress", "weight", "settings"];
   let state = {
     route: "home",
     exercises: [],
     sessions: [],
-    protein: [],
-    proteinGoal: 150,
     bodyweight: [],
     weightGoal: null,    // target body weight (kg) — drawn as a horizontal line on the chart
     muscleGroups: [],
@@ -1036,15 +1008,13 @@
   }
 
   async function loadAll() {
-    const [exercises, sessions, protein, proteinGoal, bodyweight, weightGoal, muscleGroups] = await Promise.all([
-      Repo.listExercises(), Repo.listSessions(), Repo.listProtein(), Repo.getSetting("proteinGoal", 150), Repo.listBodyweight(), Repo.getSetting("weightGoal", null), Repo.listMuscleGroups()
+    const [exercises, sessions, bodyweight, weightGoal, muscleGroups] = await Promise.all([
+      Repo.listExercises(), Repo.listSessions(), Repo.listBodyweight(), Repo.getSetting("weightGoal", null), Repo.listMuscleGroups()
     ]);
     state.exercises = exercises;
     state.sessions = sessions;
-    state.protein = protein;
-    // A goal of 0, null or text (possible via an old backup) would put NaN on
-    // the Home ring; fall back to defaults rather than trust the store.
-    state.proteinGoal = Number(proteinGoal) > 0 && Number(proteinGoal) <= PROTEIN_MAX ? Number(proteinGoal) : 150;
+    // A goal of null or text (possible via an old backup) must not reach the
+    // chart; fall back rather than trust the store.
     state.bodyweight = bodyweight;
     state.weightGoal = Number(weightGoal) > 0 && Number(weightGoal) <= BODYWEIGHT_MAX ? Number(weightGoal) : null;
     state.muscleGroups = muscleGroups;
@@ -1086,7 +1056,7 @@
     return problem; // "" when fine
   }
 
-  // Read a numeric input for the protein / weight / goal buttons. Previously
+  // Read a numeric input for the weight / goal buttons. Previously
   // an unusable value made the button do nothing at all, with no message.
   function readPositive(input, max, label) {
     if (input.validity && input.validity.badInput) { toast(`${label}: enter a number`); return null; }
@@ -1152,20 +1122,8 @@
     return `<span class="pill">${mins} min</span>`;
   }
 
-  const PROTEIN_QUICK_ADDS = [10, 20, 30, 40];
-  function proteinQuickChips() {
-    return `<div class="chip-row" style="margin-top:8px">${PROTEIN_QUICK_ADDS.map((g) =>
-      `<span class="chip" data-quick-protein="${g}">+${g}g</span>`).join("")}</div>`;
-  }
-
   function viewHome() {
     const rotation = computeRotation(state.sessions);
-    const todayProtein = state.protein.filter((p) => p.date === todayStr());
-    const totalToday = todayProtein.reduce((a, p) => a + p.amount, 0);
-    const pct = state.proteinGoal > 0 ? Math.min(100, Math.round((totalToday / state.proteinGoal) * 100)) : 0;
-    const circumference = 2 * Math.PI * 40;
-    const dash = (pct / 100) * circumference;
-
     const recent = state.sessions.slice(0, 3);
 
     return `
@@ -1178,27 +1136,6 @@
             : `<button class="btn success block" data-nav="train" style="margin-top:10px">Start Workout</button>`}
         </div>
 
-        <div class="card">
-          <h2>Today's protein <span class="link" data-nav="protein">Log →</span></h2>
-          <div class="row" style="align-items:center">
-            <div class="ring-wrap">
-              <svg width="96" height="96" viewBox="0 0 96 96">
-                <circle cx="48" cy="48" r="40" stroke="#1c2540" stroke-width="10" fill="none"/>
-                <circle cx="48" cy="48" r="40" stroke="${pct >= 100 ? "var(--good)" : "var(--accent)"}" stroke-width="10" fill="none"
-                  stroke-dasharray="${dash} ${circumference}" stroke-linecap="round"/>
-              </svg>
-              <div class="ring-label"><span class="num">${pct}%</span><span class="lbl">of goal</span></div>
-            </div>
-            <div style="flex:1">
-              <div style="font-size:22px;font-weight:800">${fmtNum(totalToday)}g <span class="muted" style="font-size:13px;font-weight:600">/ ${state.proteinGoal}g</span></div>
-              <div class="row" style="margin-top:10px;gap:6px;justify-content:flex-start">
-                <input type="number" inputmode="numeric" id="custom-protein-amount" placeholder="grams" style="width:90px" />
-                <button class="btn sm primary" id="add-custom-protein">Add</button>
-              </div>
-              ${proteinQuickChips()}
-            </div>
-          </div>
-        </div>
 
         <div class="card">
           ${bodyWeightMini()}
@@ -1430,11 +1367,6 @@
 
         <div class="card">
           ${strengthIndexCard()}
-        </div>
-
-        <div class="card">
-          <h2>Protein <span class="link" data-nav="protein">Log →</span></h2>
-          ${proteinBarsHTML(computeProteinWeek())}
         </div>
 
         <div class="card">
@@ -1791,87 +1723,6 @@
     `;
   }
 
-  // Shared by the Protein tab and the Progress tab's protein visualization
-  function computeProteinWeek() {
-    // Daily totals once, rather than re-filtering the whole log per day.
-    const totals = {};
-    for (const p of state.protein) totals[p.date] = (totals[p.date] || 0) + p.amount;
-
-    const days = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const ds = dateKey(d);
-      days.push({ ds, total: totals[ds] || 0, label: d.toLocaleDateString(undefined, { weekday: "narrow" }) });
-    }
-    const maxBar = Math.max(state.proteinGoal, ...days.map((d) => d.total), 1);
-
-    // Consecutive days at/above goal counting back from today. Today only
-    // joins the count once it's actually been hit — otherwise every streak
-    // would read 0 each morning until that day's protein was logged. The
-    // loop ends at the first miss; the ceiling is only a guard.
-    let streak = 0;
-    const todayHit = days[days.length - 1].total >= state.proteinGoal;
-    for (let i = todayHit ? 0 : 1; i <= 36500; i++) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      if ((totals[dateKey(d)] || 0) >= state.proteinGoal) streak++;
-      else break;
-    }
-    return { days, maxBar, streak };
-  }
-
-  function proteinBarsHTML(week) {
-    return `
-      <div class="bars">
-        ${week.days.map((d) => `
-          <div class="bar-col">
-            <div class="bar ${d.total >= state.proteinGoal ? "hit" : ""}" style="height:${Math.max(4, (d.total / week.maxBar) * 56)}px"></div>
-            <div class="bar-day">${d.label}</div>
-          </div>
-        `).join("")}
-      </div>
-    `;
-  }
-
-  function viewProtein() {
-    const todayEntries = state.protein.filter((p) => p.date === todayStr());
-    const totalToday = todayEntries.reduce((a, p) => a + p.amount, 0);
-    const week = computeProteinWeek();
-
-    return `
-      <div class="view">
-        <div class="card">
-          <h2>Today</h2>
-          <div style="font-size:28px;font-weight:800">${fmtNum(totalToday)}g <span class="muted" style="font-size:15px;font-weight:600">/ ${state.proteinGoal}g goal</span></div>
-          ${week.streak > 0 ? `<div class="pill good" style="margin-top:8px">${week.streak}-day streak</div>` : ""}
-          <div class="field" style="margin-top:14px">
-            <label>Add protein (g)</label>
-            <div class="row">
-              <input type="number" inputmode="numeric" id="custom-protein-amount" placeholder="e.g. 35" />
-              <button class="btn primary" id="add-custom-protein">Add</button>
-            </div>
-            ${proteinQuickChips()}
-          </div>
-        </div>
-
-        <div class="card">
-          <h2>Last 7 days</h2>
-          ${proteinBarsHTML(week)}
-        </div>
-
-        <div class="card">
-          <h2>Today's log</h2>
-          ${todayEntries.length === 0 ? `<div class="empty">Nothing logged yet today.</div>` :
-            todayEntries.map((p) => `
-              <div class="row"><span>${p.amount}g${p.note ? ` — ${esc(p.note)}` : ""}</span>
-                <button class="btn sm danger" data-del-protein="${p.id}">Delete</button></div>
-            `).join("")}
-        </div>
-      </div>
-    `;
-  }
-
   function storageReadoutHTML() {
     const st = state.storage;
     if (!st || !st.quota) return "";
@@ -1903,14 +1754,6 @@
   function viewSettings() {
     return `
       <div class="view">
-        <div class="card">
-          <h2>Protein goal</h2>
-          <div class="row">
-            <input type="number" inputmode="numeric" id="protein-goal-input" value="${state.proteinGoal}" />
-            <button class="btn primary" id="save-protein-goal">Save</button>
-          </div>
-        </div>
-
         <div class="card">
           <h2>Muscle groups</h2>
           <div class="small muted" style="margin-bottom:8px">Pick which muscle groups you want to track and how many times per week you're aiming to train each. Rotation and the Strength Index are both built from this list.</div>
@@ -1958,7 +1801,7 @@
 
         <div class="card">
           <h2>Data</h2>
-          <div class="small muted" style="margin-bottom:10px">Everything — sessions, lifts, protein log, body weight and exercise photos — is stored only on this device. Export a backup regularly, or use export/import to move data to another phone — and later, to a shared setup if friends join in.</div>
+          <div class="small muted" style="margin-bottom:10px">Everything — sessions, lifts, body weight and exercise photos — is stored only on this device. Export a backup regularly, or use export/import to move data to another phone — and later, to a shared setup if friends join in.</div>
           ${storageReadoutHTML()}
           <div class="btn-row">
             <button class="btn" id="export-data">Export backup (.json)</button>
@@ -2027,14 +1870,13 @@
   // -----------------------------------------------------------------------
   // Root render
   // -----------------------------------------------------------------------
-  const titles = { home: "We Go Gym", train: "Log Workout", progress: "Progress", protein: "Protein", weight: "Body Weight", settings: "Settings" };
+  const titles = { home: "We Go Gym", train: "Log Workout", progress: "Progress", weight: "Body Weight", settings: "Settings" };
 
   function render() {
     let body;
     if (state.route === "home") body = viewHome();
     else if (state.route === "train") body = viewTrain();
     else if (state.route === "progress") body = viewProgress();
-    else if (state.route === "protein") body = viewProtein();
     else if (state.route === "weight") body = viewWeight();
     else body = viewSettings();
 
@@ -2048,7 +1890,6 @@
         <button class="${state.route === "home" ? "active" : ""}" data-nav="home">${icon("home")}Home</button>
         <button class="${state.route === "train" ? "active" : ""}" data-nav="train">${icon("train")}Train</button>
         <button class="${state.route === "progress" ? "active" : ""}" data-nav="progress">${icon("chart")}Progress</button>
-        <button class="${state.route === "protein" ? "active" : ""}" data-nav="protein">${icon("drop")}Protein</button>
         <button class="${state.route === "weight" ? "active" : ""}" data-nav="weight">${icon("scale")}Weight</button>
         <button class="${state.route === "settings" ? "active" : ""}" data-nav="settings">${icon("gear")}Settings</button>
       </nav>
@@ -2133,35 +1974,8 @@
     const rangeBtn = t.closest("[data-weight-range]");
     if (rangeBtn) { state.weightRange = rangeBtn.dataset.weightRange; render(); return; }
 
-    const quickP = t.closest("[data-quick-protein]");
-    if (quickP) {
-      const g = Number(quickP.dataset.quickProtein);
-      await Repo.addProtein(g);
-      state.protein = await Repo.listProtein();
-      render();
-      toast("Logged " + g + "g protein");
-      return;
-    }
-
     const restBtn = t.closest("[data-rest]");
     if (restBtn) { startRest(Number(restBtn.dataset.rest)); return; }
-
-    if (t.id === "add-custom-protein") {
-      const val = readPositive(document.getElementById("custom-protein-amount"), PROTEIN_MAX, "Protein");
-      if (val === null) return;
-      await Repo.addProtein(val);
-      state.protein = await Repo.listProtein();
-      render();
-      toast("Logged " + val + "g protein");
-      return;
-    }
-    const delP = t.closest("[data-del-protein]");
-    if (delP) {
-      await Repo.deleteProtein(delP.dataset.delProtein);
-      state.protein = await Repo.listProtein();
-      render();
-      return;
-    }
 
     // Body weight
     if (t.id === "save-bodyweight") {
@@ -2482,16 +2296,6 @@
       return;
     }
 
-    if (t.id === "save-protein-goal") {
-      const val = readPositive(document.getElementById("protein-goal-input"), PROTEIN_MAX, "Goal");
-      if (val === null) return;
-      await Repo.setSetting("proteinGoal", val);
-      state.proteinGoal = val;
-      toast("Goal updated");
-      render();
-      return;
-    }
-
     if (t.id === "export-data") {
       const data = await Repo.exportAll();
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
@@ -2508,7 +2312,7 @@
     }
     if (t.id === "import-data-btn") { document.getElementById("import-file-input").click(); return; }
     if (t.id === "clear-all-data") {
-      if (confirm("This erases ALL local data (sessions, protein log, custom exercises). This cannot be undone. Continue?")) {
+      if (confirm("This erases ALL local data (sessions, body weight, custom exercises). This cannot be undone. Continue?")) {
         await Repo.clearAll();
         // Everything in memory referred to data that no longer exists
         state.activeSession = null;
@@ -2553,7 +2357,6 @@
         const parts = [];
         if (r.sessions) parts.push(plural(r.sessions, "session"));
         if (r.exercises) parts.push(plural(r.exercises, "exercise"));
-        if (r.protein) parts.push(plural(r.protein, "protein entry").replace("entrys", "entries"));
         if (r.bodyweight) parts.push(plural(r.bodyweight, "weigh-in"));
         if (r.muscleGroups) parts.push(plural(r.muscleGroups, "muscle group"));
         if (r.updatedGroups) parts.push(plural(r.updatedGroups, "muscle group") + " updated");

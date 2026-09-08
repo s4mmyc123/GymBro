@@ -1,7 +1,7 @@
 {
   "name": "We Go Gym",
   "short_name": "We Go Gym",
-  "description": "Gym session, lift, muscle rotation and protein tracker",
+  "description": "Gym session, lift, muscle rotation and body weight tracker",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
