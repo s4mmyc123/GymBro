@@ -615,7 +615,7 @@ a, a:visited { color: var(--accent); }
   white-space: nowrap;
 }
 
-/* Rest timer pill — fixed above the nav, tap to cancel */
+/* Rest timer pill: fixed above the nav, tap to cancel */
 .rest-timer {
   position: fixed;
   left: 50%;
@@ -655,7 +655,7 @@ a, a:visited { color: var(--accent); }
 }
 .rest-timer .rt-cancel { color: var(--text-dim); margin-left: 6px; font-weight: 400; }
 
-/* Full-screen photo view — above everything, tap anywhere to close */
+/* Full-screen photo view: above everything, tap anywhere to close */
 .lightbox {
   position: fixed;
   inset: 0;

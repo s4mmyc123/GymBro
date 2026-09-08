@@ -144,7 +144,7 @@ decimal so `0.1 + 0.2` prints as 0.3 rather than 0.30000000000000004.
 
 ### 3.5 Empty state when there are no muscle groups  [UI]
 The Home and Progress rotation cards rendered only a heading. They now say
-"No muscle groups yet — add some in Settings."
+"No muscle groups yet. Add some in Settings."
 
 ### 3.6 Progress "This week" excludes future dates and deleted groups  [UI]
 It counted sessions dated after today and muscle groups that no longer
@@ -310,7 +310,7 @@ rows in Settings, Train, and the picker wrap rather than widening the page.
 - The one-click-at-a-time guard releases itself after five seconds, so a
   handler stuck on a promise cannot freeze every button.
 - Any unexpected error inside a click or change handler now shows "Something
-  went wrong — try again, or reload the app" instead of failing silently.
+  went wrong. Try again, or reload the app" instead of failing silently.
 
 ### 8.7 Reported, left as is
 - 1Y is today plus the 364 days before it, consistent with the other ranges.
@@ -411,3 +411,12 @@ formatter, an unused icon, and an unused grid style were deleted; a
 misplaced comment moved; the stored protein goal is now removed once,
 during the database upgrade, instead of on every launch; and the backup
 settings check now accepts only known keys, not inherited object names.
+
+## 19. Exercise library rows and dashes  (8 Sep 2026)
+
+In Settings, an exercise with a long name or variation pushed its Edit and
+Delete buttons into a stack. They now stay side by side and the text wraps
+instead. Every long dash in the app's text has been replaced with plain
+punctuation: full stops, colons, commas, or brackets. Empty values that
+showed a dash (body weight before any weigh-in, a session with no muscle
+groups) now say "No entry" or "No muscle groups".

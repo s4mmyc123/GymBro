@@ -1,5 +1,5 @@
 /* =========================================================================
-   We Go Gym — local-first gym tracker
+   We Go Gym - local-first gym tracker
    Plain JS, no build step, no external dependencies.
 
    ARCHITECTURE NOTE (for future multi-user / friends scaling):
@@ -7,7 +7,7 @@
    the app calls Repo.* methods and never touches IndexedDB directly. If you
    later want to add a shared backend (e.g. Supabase/Firebase/a small REST
    API) so friends can use this too, you only need to rewrite the inside of
-   Repo's methods to call that backend instead of IndexedDB — the rest of
+   Repo's methods to call that backend instead of IndexedDB - the rest of
    the app (views, rendering, rotation/PR logic) stays untouched.
    ========================================================================= */
 
@@ -17,7 +17,7 @@
   // -----------------------------------------------------------------------
   // Constants
   // -----------------------------------------------------------------------
-  // Muscle groups are fully user-managed (see the Settings tab) — each one
+  // Muscle groups are fully user-managed (see the Settings tab) - each one
   // has a name, a target weekly frequency, and a color assigned from this
   // palette when it's created. Defaults below are only used to seed a
   // starting list for new installs; the user can rename the concept
@@ -36,28 +36,28 @@
   const DEFAULT_FREQUENCY = 2; // times per week
   const FREQUENCY_MAX = 14;    // times per week (matches the input's max attribute)
 
-  // Sanity ceilings for user-entered numbers. Generous on purpose — they only
+  // Sanity ceilings for user-entered numbers. Generous on purpose - they only
   // exist to stop a stray "1e9" from wrecking every chart and total.
   const SET_VALUE_MAX = 10000;   // kg, reps, minutes or km per set
   const BODYWEIGHT_MAX = 1000;   // kg, for weigh-ins and the goal
   const NAME_MAX = 60;           // exercise names (input maxlength; imports are cut to match)
   const TAG_MAX = 30;            // muscle group and variation names
 
-  // Muscle groups that aren't about lifting heavier over time — excluded from the Strength Index.
+  // Muscle groups that aren't about lifting heavier over time - excluded from the Strength Index.
   const NON_STRENGTH_GROUPS = ["Cardio"];
 
-  // Retired tags, folded into "Legs" — kept only so already-seeded exercise
+  // Retired tags, folded into "Legs" - kept only so already-seeded exercise
   // records can be migrated on load (see migrateLegacyMuscleGroups below).
   const REMOVED_MUSCLE_GROUPS = ["Hamstrings", "Glutes", "Calves"];
 
-  // The exercise library is fully user-built — you add each exercise
+  // The exercise library is fully user-built - you add each exercise
   // yourself (with muscle groups, optional variations and an optional photo).
   // The old pre-seeded defaults were retired; clearBuiltinExercises below
   // removes them once from devices that had them.
 
   // What a set logs depends on the exercise's metric. Only "weight_reps"
   // feeds Best/PRs/the Strength Index (est. 1RM needs both a weight and a
-  // rep count) — the others just record their raw numbers per set.
+  // rep count) - the others just record their raw numbers per set.
   const METRIC_TYPES = {
     weight_reps: { label: "Weight × reps", fields: [
       { key: "weight", unit: "kg", placeholder: "kg", inputMode: "decimal" },
@@ -95,12 +95,12 @@
   }
 
   const DB_NAME = "ironLogDB";
-  const DB_VERSION = 3; // v3: protein tracking removed — the store is deleted on upgrade
+  const DB_VERSION = 3; // v3: protein tracking removed - the store is deleted on upgrade
   const ACTIVE_SESSION_KEY = "activeSession"; // settings-store key for the in-progress workout draft
 
   // Local calendar date as YYYY-MM-DD. toISOString() would give the *UTC*
   // date, which is a different day for several hours either side of
-  // midnight anywhere away from Greenwich — a 7am session in NZ would be
+  // midnight anywhere away from Greenwich - a 7am session in NZ would be
   // filed under yesterday. Every date key in the app goes through here.
   function dateKey(d) {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -108,7 +108,7 @@
   const todayStr = () => dateKey(new Date());
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
-  // Escape user-entered text before it goes into innerHTML — names with
+  // Escape user-entered text before it goes into innerHTML - names with
   // quotes, ampersands or angle brackets would otherwise break the markup
   // (or, inside data-* attributes, silently truncate the value).
   function esc(s) {
@@ -160,7 +160,7 @@
           resolve(db);
         };
         req.onerror = () => reject(req.error);
-        req.onblocked = () => reject(new Error("The app is open in another tab — close it and reload."));
+        req.onblocked = () => reject(new Error("The app is open in another tab. Close it and reload."));
       });
       return dbPromise;
     }
@@ -208,7 +208,7 @@
     // One-time cleanup: exercises seeded before Hamstrings/Glutes/Calves were
     // retired still have those tags stored. Strip them and make sure "Legs"
     // is present instead, so rotation/Strength Index don't reference groups
-    // that no longer exist. Past *sessions* keep their original snapshot —
+    // that no longer exist. Past *sessions* keep their original snapshot -
     // only the exercise library itself is migrated.
     async function migrateLegacyMuscleGroups() {
       const exercises = await getAll("exercises");
@@ -238,7 +238,7 @@
 
     // ---- Record normalisation ------------------------------------------
     // Everything the views assume about a record's shape is enforced here,
-    // once, on the way out of IndexedDB — so a backup edited by hand (or a
+    // once, on the way out of IndexedDB - so a backup edited by hand (or a
     // record from an older version) can't take the whole app down. A record
     // with no usable identity or date returns null and is dropped from the
     // list; numbers outside their sanity bounds are blanked.
@@ -322,7 +322,7 @@
       init: () => open().then(clearBuiltinExercises).then(migrateLegacyMuscleGroups).then(ensureMuscleGroupsSeeded),
       normalizeSession,
 
-      // Muscle groups — fully user-managed (see Settings)
+      // Muscle groups - fully user-managed (see Settings)
       listMuscleGroups: () => getAll("muscleGroups").then((l) => l.map(normalizeMuscleGroup).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name))),
       // Colour: first palette entry not already in use, so deleting and
       // re-adding groups doesn't hand two of them the same swatch.
@@ -356,7 +356,7 @@
       setPhoto: (exerciseId, blob) => put("photos", { exerciseId, blob }),
       deletePhoto: (exerciseId) => del("photos", exerciseId),
 
-      // Body weight (one entry per day — logging again the same day overwrites it)
+      // Body weight (one entry per day - logging again the same day overwrites it)
       listBodyweight: () => getAll("bodyweight").then((l) => l.map(normalizeBodyweight).filter(Boolean).sort((a, b) => a.date.localeCompare(b.date))),
       setBodyweight: (date, weight) => put("bodyweight", { date, weight, loggedAt: Date.now() }),
       deleteBodyweight: (date) => del("bodyweight", date),
@@ -368,7 +368,7 @@
         ]);
         // The in-progress workout draft is device state, not data worth backing up.
         const settingsList = (await getAll("settings")).filter((s) => s.key !== ACTIVE_SESSION_KEY);
-        // Blobs can't be JSON-stringified directly — encode as base64 data URLs for export.
+        // Blobs can't be JSON-stringified directly - encode as base64 data URLs for export.
         const photosEncoded = await Promise.all(photos.map((p) => new Promise((resolve) => {
           const reader = new FileReader();
           reader.onload = () => resolve({ exerciseId: p.exerciseId, dataUrl: reader.result });
@@ -379,7 +379,7 @@
       // Import is a merge: records are matched by id, and muscle groups also
       // by name (the seeded defaults after an Erase would otherwise come back
       // twice). Everything is validated and decoded first, then written in a
-      // single transaction — a bad file either imports completely or not at all.
+      // single transaction - a bad file either imports completely or not at all.
       async importAll(data) {
         const STORES = ["exercises", "sessions", "settings", "bodyweight", "muscleGroups", "photos"];
         // Backups from before v3 may carry a "protein" array; it is ignored.
@@ -398,7 +398,7 @@
 
         // Muscle groups match by name (case-insensitive). A match keeps the
         // existing record's id (exercises reference groups by name, so ids
-        // don't matter) but takes the backup's frequency and colour — the
+        // don't matter) but takes the backup's frequency and colour - the
         // re-seeded defaults after an Erase must not win over your settings.
         const existingByName = {};
         for (const m of (await getAll("muscleGroups")).map(normalizeMuscleGroup).filter(Boolean)) existingByName[m.name.toLowerCase()] = m;
@@ -467,7 +467,7 @@
     return Math.max(0, Math.round((now - d) / 86400000));
   }
 
-  // A set only counts as a lift when both numbers are real positives —
+  // A set only counts as a lift when both numbers are real positives -
   // "!set.weight" alone let a typo like -50 through as a personal record.
   function isLiftSet(set) {
     return set.weight > 0 && set.reps > 0;
@@ -486,7 +486,7 @@
     return n + " days ago";
   }
 
-  // Most recent session entry for an exercise — powers "last time" hints
+  // Most recent session entry for an exercise - powers "last time" hints
   // while logging (sessions list is sorted newest-first). Pass a variation
   // string ("" = no variation) to only match that variation, so e.g. rope
   // and straight-bar pushdowns keep separate histories.
@@ -501,7 +501,7 @@
     return null;
   }
 
-  // PRs are tracked per exercise *and* variation — a rope pushdown and a
+  // PRs are tracked per exercise *and* variation - a rope pushdown and a
   // straight-bar pushdown are different lifts as far as "your best" goes,
   // and a lighter variation would otherwise never register a PR. The key
   // joins the two with a character that can't appear in an id.
@@ -560,7 +560,7 @@
 
   // Build a map: muscleGroup -> { lastDate, daysSince } from session history
   // Each muscle group's target frequency (times/week) implies a target rest
-  // interval (7 / frequency days) — daysSince is compared against that
+  // interval (7 / frequency days) - daysSince is compared against that
   // interval, rather than a fixed threshold, so a muscle trained often (e.g.
   // 4x/week) shows overdue sooner than one trained rarely (e.g. 1x/week).
   function computeRotation(sessions) {
@@ -589,7 +589,7 @@
   }
 
   // Thresholds are fractions of the target interval (7 / frequency days),
-  // not fixed day counts — e.g. at 2x/week (3.5-day interval), day 3 is
+  // not fixed day counts - e.g. at 2x/week (3.5-day interval), day 3 is
   // already 0.86 of the way there, so it shows as "upcoming" (orange)
   // rather than waiting until the interval is actually reached.
   function rotationColor(overdueRatio) {
@@ -602,8 +602,8 @@
 
   // Shared row markup for the three places rotation renders (Home, full
   // Muscle rotation card, Progress tab's inline copy). Bar color reflects
-  // training urgency relative to each muscle's own target frequency — not
-  // the muscle's identity — so green/orange/red always means
+  // training urgency relative to each muscle's own target frequency - not
+  // the muscle's identity - so green/orange/red always means
   // recently-done/upcoming/overdue.
   function rotationItemHTML(r) {
     const pct = r.overdueRatio === Infinity ? 100 : Math.min(100, Math.round((r.overdueRatio / 1.5) * 100));
@@ -618,7 +618,7 @@
   }
 
   // Best set (by est 1RM) per exercise across all sessions. Only sets with
-  // both a weight and a rep count qualify — time/distance/reps-only sets
+  // both a weight and a rep count qualify - time/distance/reps-only sets
   // would otherwise register as a 0kg "best" and show up under Lift
   // progress (and count as a PR the first time they're logged).
   function bestSetsByExercise(sessions) {
@@ -639,7 +639,7 @@
 
   // Chronological history (weight/reps/1RM/volume) for one exercise: one row
   // per calendar *day*, taking the best set across every entry and session
-  // of that exercise on it (an exercise can appear twice — two variations,
+  // of that exercise on it (an exercise can appear twice - two variations,
   // or a morning and evening session) and summing the volume. Rows per entry
   // drew a false dip whenever the lighter one happened to be logged second,
   // and two rows on one date collapsed to a single point in the Strength Index.
@@ -666,7 +666,7 @@
   }
 
   // Flat, chronological log of every set for a non-weight_reps exercise
-  // (time / distance / reps-only) — no "best" concept, just the raw numbers.
+  // (time / distance / reps-only) - no "best" concept, just the raw numbers.
   function genericSetHistory(sessions, exerciseId) {
     const history = [];
     for (const s of chronological(sessions)) {
@@ -687,7 +687,7 @@
 
   // Sessions store a name snapshot per entry so history survives deletion,
   // but while the exercise still exists in the library its *current* name
-  // should win — otherwise a rename shows up in some lists and not others.
+  // should win - otherwise a rename shows up in some lists and not others.
   function exerciseDisplayName(exerciseId, snapshotName) {
     const ex = state.exercises.find((e) => e.id === exerciseId);
     return ex ? ex.name : snapshotName;
@@ -718,11 +718,11 @@
   }
 
   // -----------------------------------------------------------------------
-  // Strength Index — a single relative-progress number, since exercises use
+  // Strength Index - a single relative-progress number, since exercises use
   // wildly different absolute weights (a 40kg curl and a 140kg squat) and
   // can't be summed directly. Each exercise *variation* (rope vs. bar
   // pushdowns are different lifts) gets its own best-estimated-1RM history,
-  // one point per day, normalized to "% of its baseline" — the strongest of
+  // one point per day, normalized to "% of its baseline" - the strongest of
   // its first two logged days, so a tentative first session doesn't set an
   // artificially low bar. Those normalized series are averaged together:
   // across every lift for the overall index, or across the lifts tagged to
@@ -733,7 +733,7 @@
   const BASELINE_DAYS = 2; // how many of a lift's first days set its baseline
 
   function normalizedSeries(history) {
-    // A lift logged on a single day has no trend yet — it would only sit at
+    // A lift logged on a single day has no trend yet - it would only sit at
     // its baseline forever and drag the average toward "no change".
     if (history.length < 2) return [];
     const base = Math.max(...history.slice(0, BASELINE_DAYS).map((h) => h.orm));
@@ -803,7 +803,7 @@
   }
 
   // -----------------------------------------------------------------------
-  // Photos — compressed client-side before storage so IndexedDB stays small.
+  // Photos - compressed client-side before storage so IndexedDB stays small.
   // 1200px on the long edge at 0.8 quality is typically 100-250KB: sharp
   // enough to fill a phone screen in the lightbox, and a library of 50+
   // photos still fits comfortably in a few tens of MB.
@@ -850,7 +850,7 @@
   }
 
   // ---------------------------------------------------------------------
-  // Rest timer — lives outside the render cycle in its own fixed pill so
+  // Rest timer - lives outside the render cycle in its own fixed pill so
   // it survives re-renders and keeps counting on any tab. Tap to cancel.
   // ---------------------------------------------------------------------
   const restEl = document.getElementById("rest-timer");
@@ -868,7 +868,7 @@
     const left = Math.max(0, Math.ceil((restTimer.endsAt - Date.now()) / 1000));
     if (left <= 0) {
       stopRest(true);
-      toast("Rest over — next set!");
+      toast("Rest over, next set!");
       vibrate([80, 80, 80]);
       return;
     }
@@ -887,7 +887,7 @@
   restEl.addEventListener("click", () => stopRest());
 
   // ---------------------------------------------------------------------
-  // Photo lightbox — full-screen view of an exercise photo. Lives outside
+  // Photo lightbox - full-screen view of an exercise photo. Lives outside
   // the render cycle like the rest timer. Tap anywhere or press Escape to
   // close; the page's pinch-zoom still works on the enlarged image.
   // ---------------------------------------------------------------------
@@ -931,7 +931,7 @@
     return icons[name] || "";
   }
 
-  // Selectable time windows for the Weight tab chart. Shortest is 1 week —
+  // Selectable time windows for the Weight tab chart. Shortest is 1 week -
   // the smallest granularity that still shows a meaningful trend.
   const WEIGHT_RANGES = [
     { key: "1w", label: "1W", days: 7 },
@@ -949,7 +949,7 @@
     exercises: [],
     sessions: [],
     bodyweight: [],
-    weightGoal: null,    // target body weight (kg) — drawn as a horizontal line on the chart
+    weightGoal: null,    // target body weight (kg) - drawn as a horizontal line on the chart
     muscleGroups: [],
     weightRange: "2w",   // defaults to 2 weeks, per WEIGHT_RANGES above
     photoUrls: {},       // exerciseId -> object URL for its photo (if any)
@@ -1016,7 +1016,7 @@
   }
 
   // The in-progress workout lives in memory, but phones reload PWAs freely
-  // (switching apps, a call, low memory) — mirror every change to the
+  // (switching apps, a call, low memory) - mirror every change to the
   // settings store so a reload mid-session picks up where you left off.
   function persistActiveSession() {
     Repo.setSetting(ACTIVE_SESSION_KEY, state.activeSession).catch(() => {});
@@ -1039,7 +1039,7 @@
     set[key] = valid ? n : "";
     const problem = valid || raw === "" ? "" : (Number.isFinite(n) && n > SET_VALUE_MAX ? `Sets can't be more than ${SET_VALUE_MAX}` : "Sets need a positive number");
     persistActiveSession();
-    // Refresh just this set's "beats your best" line — a full render here
+    // Refresh just this set's "beats your best" line - a full render here
     // would steal focus from the input mid-typing.
     const holder = document.querySelector(`[data-set-hint="${ei}:${si}"]`);
     if (holder) {
@@ -1145,7 +1145,7 @@
             recent.map((s) => {
               const mgs = Array.from(new Set(s.entries.flatMap((e) => e.muscleGroups || [])));
               return `<div class="row"><div><div style="font-weight:700">${fmtDate(s.date)}</div>
-                <div class="small muted">${esc(mgs.join(", ")) || "—"}</div></div>
+                <div class="small muted">${esc(mgs.join(", ")) || "No muscle groups"}</div></div>
                 <span style="display:flex;gap:5px">${sessionDurationPill(s)}<span class="pill">${s.entries.length} ex</span></span></div>`;
             }).join("")}
         </div>
@@ -1250,7 +1250,7 @@
   }
 
   // ---------------------------------------------------------------------
-  // Exercise picker — a bottom-sheet popup with search + muscle filter.
+  // Exercise picker - a bottom-sheet popup with search + muscle filter.
   // Three modes: pick exercise → (optional) pick variation → or create new.
   // ---------------------------------------------------------------------
   function addExercisePanel() {
@@ -1277,7 +1277,7 @@
       <div class="sheet-title"><h2 style="margin:0">${esc(ex.name)}</h2><span class="link" data-close-add>Close</span></div>
       <div class="small muted" style="margin-bottom:12px">Which variation? Each keeps its own last-time and best numbers.</div>
       ${ex.variations.map((vName) => `<div class="pick-row" data-pick-variation="${esc(vName)}"><span>${esc(vName)}</span><span class="chev">›</span></div>`).join("")}
-      <div class="pick-row" data-pick-variation=""><span>Standard <span class="small muted">— no variation</span></span><span class="chev">›</span></div>
+      <div class="pick-row" data-pick-variation=""><span>Standard <span class="small muted">(no variation)</span></span><span class="chev">›</span></div>
     `;
   }
 
@@ -1312,7 +1312,7 @@
     if (state.exercises.length === 0) {
       return `
         <div class="sheet-title"><h2 style="margin:0">Add exercise</h2><span class="link" data-close-add>Close</span></div>
-        <div class="empty">Your exercise library is empty — create your first exercise right here.</div>
+        <div class="empty">Your exercise library is empty. Create your first exercise right here.</div>
         <button class="btn primary block" id="train-new-exercise-btn">+ New exercise</button>
       `;
     }
@@ -1369,7 +1369,7 @@
 
         <div class="card">
           <h2>Personal records</h2>
-          ${prs.length === 0 ? `<div class="empty">No PRs yet — log a session to start tracking.</div>` :
+          ${prs.length === 0 ? `<div class="empty">No PRs yet. Log a session to start tracking.</div>` :
             prs.map((pr) => `
               <div class="row list-tap" data-view-exercise="${pr.exerciseId}">
                 <span style="display:flex;align-items:center;gap:8px">${photoThumb(pr.exerciseId)}<span>${esc(pr.exerciseName)}${pr.variation ? ` <span class="variation-tag">${esc(pr.variation)}</span>` : ""}<div class="small muted">${fmtDate(pr.date)}</div></span></span>
@@ -1393,7 +1393,7 @@
   }
 
   function rotationListHTML(rotation) {
-    if (rotation.length === 0) return `<div class="empty">No muscle groups yet — add some in Settings.</div>`;
+    if (rotation.length === 0) return `<div class="empty">No muscle groups yet. Add some in Settings.</div>`;
     return rotation.map(rotationItemHTML).join("");
   }
 
@@ -1417,10 +1417,10 @@
     const metric = ex.metric || DEFAULT_METRIC;
     const photoUrl = state.photoUrls[exId];
     const photoHTML = photoUrl ? `<img src="${photoUrl}" alt="${esc(ex.name)}" data-photo-view="${exId}" style="width:100%;max-height:180px;object-fit:cover;border-radius:12px;margin:8px 0;cursor:zoom-in" />` : "";
-    const deletedNote = ex.deleted ? `<div class="small muted" style="margin-bottom:8px">No longer in your library — showing logged history only.</div>` : "";
+    const deletedNote = ex.deleted ? `<div class="small muted" style="margin-bottom:8px">No longer in your library. Showing logged history only.</div>` : "";
 
     // An exercise can carry both kinds of history if its metric was changed
-    // after some sessions were logged — show whichever exist, rather than
+    // after some sessions were logged - show whichever exist, rather than
     // picking one by the library's current metric and mis-formatting the rest.
     const history = exerciseHistory(state.sessions, exId);        // weight×reps, one row per session
     const generic = genericSetHistory(state.sessions, exId);      // time / distance / reps-only sets
@@ -1431,7 +1431,7 @@
       const first = history[0];
       const delta = first && best && first.orm > 0 ? Math.round(((best.orm - first.orm) / first.orm) * 100) : null;
       // Only worth a section once more than one variation has history (or the
-      // sole variation isn't "Standard") — otherwise it just repeats "Best".
+      // sole variation isn't "Standard") - otherwise it just repeats "Best".
       const perVariation = Object.values(bestSetsByVariation(state.sessions))
         .filter((b) => b.exerciseId === exId)
         .sort((a, b) => b.orm - a.orm);
@@ -1496,7 +1496,7 @@
     </svg>`;
   }
 
-  // Bigger line chart with axis labels — used for body weight and Strength Index trends
+  // Bigger line chart with axis labels - used for body weight and Strength Index trends
   function trendChart(points, formatValue, color) {
     const w = 300, h = 100, padX = 8, padY = 16;
     color = color || "var(--accent)";
@@ -1523,7 +1523,7 @@
     `;
   }
 
-  // Compact version for Home — quick log only, no chart (the chart lives on the Weight tab)
+  // Compact version for Home - quick log only, no chart (the chart lives on the Weight tab)
   function bodyWeightMini() {
     const history = state.bodyweight;
     const todayEntry = history.find((e) => e.date === todayStr());
@@ -1531,7 +1531,7 @@
     return `
       <h2>Body weight <span class="link" data-nav="weight">Trend →</span></h2>
       <div class="row" style="align-items:center">
-        <div style="font-size:22px;font-weight:800">${latest ? latest.weight + "kg" : "—"}</div>
+        <div style="font-size:22px;font-weight:800">${latest ? latest.weight + "kg" : "No entry"}</div>
         <div style="display:flex;gap:6px;align-items:center">
           <input type="number" inputmode="decimal" step="0.1" id="bodyweight-input" placeholder="kg" value="${todayEntry ? todayEntry.weight : ""}" style="width:80px" />
           <button class="btn primary sm" id="save-bodyweight">${todayEntry ? "Update" : "Log"}</button>
@@ -1574,7 +1574,7 @@
     const min = rawMin - pad, max = rawMax + pad;
     const range = max - min || 1;
 
-    // x is proportional to elapsed time, not to index — a year-old weigh-in
+    // x is proportional to elapsed time, not to index - a year-old weigh-in
     // and one from last week must not sit next to each other.
     const dayMs = (dateStr) => new Date(dateStr + "T00:00:00").getTime();
     const t0 = dayMs(points[0].date), tSpan = Math.max(1, dayMs(points[points.length - 1].date) - t0);
@@ -1592,7 +1592,7 @@
     }).join("");
 
     // Date labels: first, last, and whichever point sits nearest the middle
-    // of the axis — as long as it's clear of both ends.
+    // of the axis - as long as it's clear of both ends.
     let midIdx = -1, midDist = Infinity;
     for (let i = 1; i < points.length - 1; i++) {
       const d = Math.abs(xAt(i) - w / 2);
@@ -1645,7 +1645,7 @@
         <div class="card">
           <h2>Body weight</h2>
           <div class="row" style="align-items:center;margin-bottom:2px">
-            <div style="font-size:30px;font-weight:800">${latest ? latest.weight + "kg" : "—"}</div>
+            <div style="font-size:30px;font-weight:800">${latest ? latest.weight + "kg" : "No entry"}</div>
             <div style="display:flex;gap:6px;align-items:center">
               <input type="number" inputmode="decimal" step="0.1" id="bodyweight-input" placeholder="kg" value="${todayEntry ? todayEntry.weight : ""}" style="width:88px" />
               <button class="btn primary sm" id="save-bodyweight">${todayEntry ? "Update" : "Log"}</button>
@@ -1661,13 +1661,13 @@
           </div>
           ${rangeSelectorHTML(state.weightRange)}
           ${filtered.length > 1 ? weightAreaChart(filtered, state.weightGoal) :
-            filtered.length === 1 ? `<div class="empty">Only one weigh-in in this range — widen the range or log again tomorrow.</div>` :
+            filtered.length === 1 ? `<div class="empty">Only one weigh-in in this range. Widen the range or log again tomorrow.</div>` :
             `<div class="empty">No weigh-ins in this range yet.</div>`}
         </div>
 
         <div class="card">
           <h2>History</h2>
-          ${fullHistory.length === 0 ? `<div class="empty">No weigh-ins yet — log today's above to get started.</div>` :
+          ${fullHistory.length === 0 ? `<div class="empty">No weigh-ins yet. Log today's above to get started.</div>` :
             fullHistory.slice().reverse().slice(0, 20).map((e) => `
               <div class="row"><span class="small">${fmtDate(e.date)}</span>
                 <span class="small">${e.weight}kg <button class="btn sm danger" data-del-bodyweight="${e.date}" style="margin-left:8px">Delete</button></span></div>
@@ -1694,7 +1694,7 @@
 
     return `
       <h2>Strength Index</h2>
-      <div class="small muted" style="margin-bottom:10px">A rough "are you moving more weight than when you started" score — averages each lift's growth vs. its own baseline (the best of its first two days, per variation), so exercises at very different weights can be compared fairly.</div>
+      <div class="small muted" style="margin-bottom:10px">A rough "are you moving more weight than when you started" score. It averages each lift's growth vs. its own baseline (the best of its first two days, per variation), so exercises at very different weights can be compared fairly.</div>
       ${latest === null ? `<div class="empty">Log a couple of sessions for the same lifts to start seeing this.</div>` : `
         <div class="row" style="align-items:flex-end;margin-bottom:10px">
           <div>
@@ -1750,7 +1750,7 @@
         <div class="card">
           <h2>Muscle groups</h2>
           <div class="small muted" style="margin-bottom:8px">Pick which muscle groups you want to track and how many times per week you're aiming to train each. Rotation and the Strength Index are both built from this list.</div>
-          ${state.muscleGroups.length === 0 ? `<div class="empty">No muscle groups yet — add your first below.</div>` : `
+          ${state.muscleGroups.length === 0 ? `<div class="empty">No muscle groups yet. Add your first below.</div>` : `
           <div style="margin-bottom:12px">
             ${state.muscleGroups.map((mg) => `
               <div class="row" style="align-items:center">
@@ -1772,8 +1772,8 @@
 
         <div class="card">
           <h2>Exercise library</h2>
-          <div class="small muted" style="margin-bottom:8px">Your own library — each exercise has muscle groups, optional variations (attachments, grips, one/two-handed) and an optional photo. Variations track their own last-time and best numbers.</div>
-          ${state.exercises.length === 0 ? `<div class="empty">No exercises yet — add your first below.</div>` : `
+          <div class="small muted" style="margin-bottom:8px">Your own library. Each exercise has muscle groups, optional variations (attachments, grips, one/two-handed) and an optional photo. Variations track their own last-time and best numbers.</div>
+          ${state.exercises.length === 0 ? `<div class="empty">No exercises yet. Add your first below.</div>` : `
           <div style="max-height:320px;overflow:auto;margin-bottom:12px">
             ${state.exercises.map((ex) => `
               <div class="row">
@@ -1781,7 +1781,7 @@
                   ${photoThumb(ex.id, 38)}
                   <div><div>${esc(ex.name)}</div><div class="small muted">${esc(ex.muscleGroups.join(", "))}${ex.variations && ex.variations.length ? ` · ${esc(ex.variations.join(" / "))}` : ""}${(ex.metric || DEFAULT_METRIC) !== "weight_reps" ? ` · ${metricLabel(ex.metric)}` : ""}</div></div>
                 </div>
-                <div class="btn-row">
+                <div class="btn-row" style="flex-wrap:nowrap;flex-shrink:0">
                   <button class="btn sm ghost" data-edit-exercise="${ex.id}">Edit</button>
                   <button class="btn sm danger" data-del-exercise="${ex.id}">Delete</button>
                 </div>
@@ -1794,7 +1794,7 @@
 
         <div class="card">
           <h2>Data</h2>
-          <div class="small muted" style="margin-bottom:10px">Everything — sessions, lifts, body weight and exercise photos — is stored only on this device. Export a backup regularly, or use export/import to move data to another phone — and later, to a shared setup if friends join in.</div>
+          <div class="small muted" style="margin-bottom:10px">Everything (sessions, lifts, body weight and exercise photos) is stored only on this device. Export a backup regularly, or use export/import to move data to another phone - and later, to a shared setup if friends join in.</div>
           ${storageReadoutHTML()}
           <div class="btn-row">
             <button class="btn" id="export-data">Export backup (.json)</button>
@@ -1806,7 +1806,7 @@
 
         <div class="card">
           <h2>About</h2>
-          <div class="small muted">We Go Gym v1.0 · local-only storage on this device (IndexedDB). Install to your home screen for the full-screen app feel — see the README for how.</div>
+          <div class="small muted">We Go Gym v1.0 · local-only storage on this device (IndexedDB). Install to your home screen for the full-screen app feel. See the README for how.</div>
         </div>
       </div>
     `;
@@ -1832,13 +1832,13 @@
         </div>
         <div class="field">
           <label>Muscle group(s)</label>
-          ${state.muscleGroups.length === 0 ? `<div class="small muted">No muscle groups yet — add some in Settings first.</div>` : `
+          ${state.muscleGroups.length === 0 ? `<div class="small muted">No muscle groups yet. Add some in Settings first.</div>` : `
           <div class="chip-row" id="new-exercise-muscles">
             ${Array.from(new Set(state.muscleGroups.map((mg) => mg.name).concat(selectedMuscles))).map((name) => `<span class="chip${selectedMuscles.includes(name) ? " selected" : ""}" data-muscle="${esc(name)}">${esc(name)}</span>`).join("")}
           </div>`}
         </div>
         <div class="field">
-          <label>Variations (optional) — attachments, grips, one/two-handed…</label>
+          <label>Variations (optional): attachments, grips, one/two-handed</label>
           ${formVariations.length ? `<div class="chip-row" style="margin-bottom:6px">
             ${formVariations.map((vName, i) => `<span class="chip selected" data-remove-variation="${i}">${esc(vName)} ✕</span>`).join("")}
           </div>` : ""}
@@ -1923,7 +1923,7 @@
     if (el) formNameValue = el.value;
   }
 
-  // The exercise form can live in Settings or inside the Train add panel —
+  // The exercise form can live in Settings or inside the Train add panel -
   // re-render whichever holder is active.
   function renderExerciseForm() {
     if (trainFormOpen) renderAddPanel();
@@ -1945,7 +1945,7 @@
       // A failed IndexedDB call (e.g. the connection was closed by a version
       // change in another tab) used to fail with nothing on screen.
       console.error(err);
-      toast("Something went wrong — try again, or reload the app");
+      toast("Something went wrong. Try again, or reload the app");
     } finally {
       clickBusySince = 0;
     }
@@ -1983,7 +1983,7 @@
     if (t.id === "save-weight-goal") {
       const input = document.getElementById("weight-goal-input");
       // A number input reports text like "abc" as an empty value plus
-      // badInput — don't mistake that for a deliberate clear.
+      // badInput - don't mistake that for a deliberate clear.
       if (input.validity && input.validity.badInput) { toast("Goal: enter a number"); return; }
       if (input.value.trim() === "") {
         await Repo.setSetting("weightGoal", null);
@@ -2029,7 +2029,7 @@
       const active = state.activeSession;
       if (active.entries.length === 0) { toast("Add at least one exercise first"); return; }
       // Build the session to save as a copy: blank sets are dropped, and an
-      // exercise with no logged sets is dropped with them — an "I meant to"
+      // exercise with no logged sets is dropped with them - an "I meant to"
       // entry would otherwise count as training that muscle in the rotation.
       // The in-memory draft is left untouched so a refused finish loses nothing.
       const hasValue = (set) => Object.values(set).some((v) => v);
@@ -2053,7 +2053,7 @@
       addExerciseOpen = false;
       render();
       let msg = "Session saved";
-      if (prCount > 0) msg += ` — ${prCount} new PR${prCount > 1 ? "s" : ""}!`;
+      if (prCount > 0) msg += `: ${prCount} new PR${prCount > 1 ? "s" : ""}!`;
       if (skipped > 0) msg += ` (${skipped} exercise${skipped > 1 ? "s" : ""} with no sets skipped)`;
       toast(msg, prCount > 0);
       return;
@@ -2111,7 +2111,7 @@
     }
     const addSet = t.closest("[data-add-set]");
     if (addSet) {
-      // A new set starts blank (Sam's preference) — the previous session's
+      // A new set starts blank (Sam's preference) - the previous session's
       // numbers still show as placeholders for reference, but nothing is
       // pre-filled that could be saved by accident.
       const entry = state.activeSession.entries[Number(addSet.dataset.addSet)];
@@ -2218,7 +2218,7 @@
       if (!name) { toast("Enter an exercise name"); return; }
       if (selectedMuscles.length === 0) { toast("Pick at least one muscle group"); return; }
       const existing = editingExerciseId ? state.exercises.find((x) => x.id === editingExerciseId) : null;
-      // Refuse a name another exercise already has — but not when an edit
+      // Refuse a name another exercise already has - but not when an edit
       // keeps its own name (an imported duplicate would otherwise be uneditable).
       const renamed = !existing || existing.name.toLowerCase() !== name.toLowerCase();
       if (renamed && state.exercises.some((x) => x.id !== editingExerciseId && x.name.toLowerCase() === name.toLowerCase())) {
@@ -2258,7 +2258,7 @@
           // Let them pick which variation they're doing right now
           pickingVariationFor = newEx.id;
           render();
-          toast("Added to library — pick a variation to add it");
+          toast("Added to library. Pick a variation to add it");
         } else if (newEx) {
           addEntryToSession(newEx, "");
           toast("Added to library + workout");
@@ -2299,7 +2299,7 @@
       document.body.appendChild(a); // Firefox needs it in the DOM to honour download=
       a.click();
       a.remove();
-      // Revoking synchronously can cancel the download on iOS Safari — give it a moment.
+      // Revoking synchronously can cancel the download on iOS Safari - give it a moment.
       setTimeout(() => URL.revokeObjectURL(url), 10000);
       return;
     }
@@ -2320,9 +2320,9 @@
     }
   }
 
-  // input listeners (change, not click) — set weight/reps and file import
+  // input listeners (change, not click) - set weight/reps and file import
   appEl.addEventListener("change", async (e) => {
-    try { await handleChange(e); } catch (err) { console.error(err); toast("Something went wrong — try again, or reload the app"); }
+    try { await handleChange(e); } catch (err) { console.error(err); toast("Something went wrong. Try again, or reload the app"); }
   });
 
   async function handleChange(e) {
@@ -2357,7 +2357,7 @@
         if (r.settings) parts.push("settings");
         toast(parts.length ? "Imported " + parts.join(", ") : "Nothing new in that backup");
       } catch (err) {
-        toast(err && /not a We Go Gym backup/.test(err.message) ? "Import failed — not a We Go Gym backup" : "Import failed — invalid file");
+        toast(err && /not a We Go Gym backup/.test(err.message) ? "Import failed: not a We Go Gym backup" : "Import failed: invalid file");
       }
       return;
     }
@@ -2432,7 +2432,7 @@
     try {
       await Repo.init();
       await loadAll();
-      // Resume a workout that was in progress when the page last unloaded —
+      // Resume a workout that was in progress when the page last unloaded -
       // after the same shape checks as a stored session, so a corrupt draft
       // can't come back as "Invalid Date / NaN min".
       const draft = Repo.normalizeSession(await Repo.getSetting(ACTIVE_SESSION_KEY, null));
@@ -2444,7 +2444,7 @@
     } catch (err) {
       // Without this the app would sit on "Loading…" forever (e.g. IndexedDB
       // blocked in some private-browsing modes, or a failed upgrade).
-      appEl.innerHTML = `<div class="empty" style="padding-top:60px">Couldn't load the app.<br><span class="small">${esc(err && err.message ? err.message : err)}</span><br><br>If you're in private browsing, try a normal tab. Otherwise reload — and if it keeps happening, restore from a backup after Erase all data.</div>`;
+      appEl.innerHTML = `<div class="empty" style="padding-top:60px">Couldn't load the app.<br><span class="small">${esc(err && err.message ? err.message : err)}</span><br><br>If you're in private browsing, try a normal tab. Otherwise reload, and if it keeps happening, restore from a backup after Erase all data.</div>`;
       return;
     }
 
@@ -2453,7 +2453,7 @@
     }
 
     // Ask the browser to protect our data from eviction, then measure usage.
-    // Neither blocks the first paint — Settings re-renders once we know.
+    // Neither blocks the first paint - Settings re-renders once we know.
     if (navigator.storage && navigator.storage.persist) {
       await navigator.storage.persist().catch(() => {});
     }
