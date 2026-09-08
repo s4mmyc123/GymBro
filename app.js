@@ -1173,7 +1173,9 @@
         <div class="card">
           <h2>This week</h2>
           ${weekDotsHTML()}
-          <button class="btn success block" data-nav="train" style="margin-top:10px">Start Workout</button>
+          ${state.activeSession
+            ? `<button class="btn primary block" data-nav="train" style="margin-top:10px">Resume Workout <span class="muted" style="font-weight:600;font-size:12px;color:#3a2410">· ${state.activeSession.entries.length} exercise${state.activeSession.entries.length === 1 ? "" : "s"} · ${sessionElapsedText()}</span></button>`
+            : `<button class="btn success block" data-nav="train" style="margin-top:10px">Start Workout</button>`}
         </div>
 
         <div class="card">

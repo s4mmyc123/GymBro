@@ -338,3 +338,9 @@ enlarged image. New photos are stored at up to 1200px on the long edge
 (was 480px) so they look sharp at full screen; existing photos keep their
 current size until replaced via Edit exercise. Service worker cache
 bumped to v13 because index.html changed.
+
+## 11. Home shows Resume Workout when one is in progress
+
+The Home button read "Start Workout" even with a session open. It now
+reads "Resume Workout" with the exercise count and elapsed time, in the
+orange accent instead of green, whenever a workout is in progress.
