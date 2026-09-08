@@ -420,3 +420,18 @@ instead. Every long dash in the app's text has been replaced with plain
 punctuation: full stops, colons, commas, or brackets. Empty values that
 showed a dash (body weight before any weigh-in, a session with no muscle
 groups) now say "No entry" or "No muscle groups".
+
+## 20. Data layer rewritten for readability  (8 Sep 2026)
+
+The IndexedDB code (the `Repo` object in app.js) was restructured so a
+person can read it top to bottom. It now opens with a table showing every
+record shape, then six short sections: the schema as a small table, opening
+the database (which creates missing tables and drops retired ones from that
+same table), the four basic operations plus one all-or-nothing multi-table
+write, the "tidy" functions that clean records on the way out, the three
+first-run tasks, and the public methods grouped per table with the backup
+code at the end. Nothing about the stored data changed: same database name,
+same tables, same keys, same record shapes, same version. Verified with a
+fresh install, an upgrade from a version-2 database holding old built-in
+exercises, retired tags, and protein data, and a full export, erase, and
+import round trip including a photo.

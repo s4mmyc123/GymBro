@@ -115,47 +115,76 @@
     return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   }
 
-  // -----------------------------------------------------------------------
-  // Repo: all persistence lives behind this API (see architecture note top)
-  // -----------------------------------------------------------------------
+  // =======================================================================
+  // DATA LAYER  (the only code that talks to IndexedDB)
+  //
+  // One database, six tables. Every record is a plain object. The KEY column
+  // is the field IndexedDB uses to find a record; saving a record with the
+  // same key replaces it.
+  //
+  //   TABLE         KEY         A RECORD
+  //   exercises     id          { id, name, muscleGroups: [..], variations: [..], metric, isCustom }
+  //   sessions      id          { id, date, startedAt, endedAt, entries: [ ENTRY, .. ] }
+  //                               ENTRY = { exerciseId, exerciseName, muscleGroups, variation, metric, sets: [ SET, .. ] }
+  //                               SET   = { weight, reps } or { reps } or { minutes } or { distance }
+  //   bodyweight    date        { date, weight, loggedAt }
+  //   muscleGroups  id          { id, name, frequency, color }
+  //   photos        exerciseId  { exerciseId, blob }
+  //   settings      key         { key, value }   keys in use: weightGoal, activeSession,
+  //                                               builtinsCleared, muscleGroupsSeeded
+  //
+  // Dates are local "YYYY-MM-DD" strings. Times (startedAt, endedAt, loggedAt)
+  // are milliseconds from Date.now(). Ids come from uid().
+  //
+  // Reading: every list*() call passes records through a tidy*() function
+  // that fills in missing fields, clamps numbers, and drops records that are
+  // unusable. The rest of the app can therefore trust what it gets.
+  // Writing: the app saves whole records with put(); nothing is patched in place.
+  // =======================================================================
   const Repo = (function () {
+
+    // ---- 1. Schema -------------------------------------------------------
+    const TABLES = {
+      exercises:    { keyPath: "id" },
+      sessions:     { keyPath: "id", indexes: ["date"] },
+      bodyweight:   { keyPath: "date" },
+      muscleGroups: { keyPath: "id" },
+      photos:       { keyPath: "exerciseId" },
+      settings:     { keyPath: "key" }
+    };
+    const TABLE_NAMES = Object.keys(TABLES);
+    // Tables from old versions that no longer exist. Dropped on upgrade,
+    // together with any settings that only they used.
+    const RETIRED = [{ table: "protein", settings: ["proteinGoal"] }];
+
+    // ---- 2. Opening the database ----------------------------------------
     let dbPromise = null;
 
     function open() {
       if (dbPromise) return dbPromise;
       dbPromise = new Promise((resolve, reject) => {
         const req = indexedDB.open(DB_NAME, DB_VERSION);
+
+        // Runs once, the first time this DB_VERSION is opened on a device:
+        // creates any table that doesn't exist yet and removes retired ones.
         req.onupgradeneeded = () => {
           const db = req.result;
-          if (!db.objectStoreNames.contains("exercises")) {
-            db.createObjectStore("exercises", { keyPath: "id" });
+          for (const name of TABLE_NAMES) {
+            if (db.objectStoreNames.contains(name)) continue;
+            const table = db.createObjectStore(name, { keyPath: TABLES[name].keyPath });
+            for (const index of TABLES[name].indexes || []) table.createIndex(index, index);
           }
-          if (!db.objectStoreNames.contains("sessions")) {
-            const s = db.createObjectStore("sessions", { keyPath: "id" });
-            s.createIndex("date", "date");
-          }
-          if (db.objectStoreNames.contains("protein")) {
-            db.deleteObjectStore("protein"); // feature removed; its data goes with it
-            req.transaction.objectStore("settings").delete("proteinGoal");
-          }
-          if (!db.objectStoreNames.contains("settings")) {
-            db.createObjectStore("settings", { keyPath: "key" });
-          }
-          if (!db.objectStoreNames.contains("photos")) {
-            db.createObjectStore("photos", { keyPath: "exerciseId" });
-          }
-          if (!db.objectStoreNames.contains("bodyweight")) {
-            db.createObjectStore("bodyweight", { keyPath: "date" });
-          }
-          if (!db.objectStoreNames.contains("muscleGroups")) {
-            db.createObjectStore("muscleGroups", { keyPath: "id" });
+          for (const old of RETIRED) {
+            if (!db.objectStoreNames.contains(old.table)) continue;
+            db.deleteObjectStore(old.table);
+            for (const key of old.settings) req.transaction.objectStore("settings").delete(key);
           }
         };
+
         req.onsuccess = () => {
           const db = req.result;
-          // If another tab (or a future release) opens a newer DB version,
-          // let go of our connection so the upgrade isn't blocked forever;
-          // the next Repo call simply reopens.
+          // Another tab (or a newer release) wants to upgrade: let go of our
+          // connection so it isn't blocked; the next call simply reopens.
           db.onversionchange = () => { db.close(); dbPromise = null; };
           resolve(db);
         };
@@ -165,70 +194,156 @@
       return dbPromise;
     }
 
-    function tx(store, mode) {
-      return open().then((db) => db.transaction(store, mode).objectStore(store));
-    }
-
-    function reqToPromise(req) {
-      return new Promise((resolve, reject) => {
+    // ---- 3. The four operations everything else is built from -----------
+    // Each one opens a short transaction on one table and returns a Promise.
+    function request(table, mode, action) {
+      return open().then((db) => new Promise((resolve, reject) => {
+        const req = action(db.transaction(table, mode).objectStore(table));
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error);
+      }));
+    }
+    const getAll = (table)      => request(table, "readonly",  (t) => t.getAll());
+    const get    = (table, key) => request(table, "readonly",  (t) => t.get(key));
+    const put    = (table, rec) => request(table, "readwrite", (t) => t.put(rec));
+    const del    = (table, key) => request(table, "readwrite", (t) => t.delete(key));
+
+    // Write several tables in ONE transaction: all of it lands or none of it.
+    function writeMany(tablesToRecords) {
+      return open().then((db) => new Promise((resolve, reject) => {
+        const tx = db.transaction(Object.keys(tablesToRecords), "readwrite");
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error || new Error("write aborted"));
+        for (const table in tablesToRecords) {
+          const store = tx.objectStore(table);
+          for (const rec of tablesToRecords[table]) store.put(rec);
+        }
+      }));
+    }
+
+    // ---- 4. Tidying records on the way out ------------------------------
+    // Rules: a record with no usable id / name / date is dropped (returns
+    // null). Missing lists become []. Numbers outside their sanity bounds
+    // become blank. Names are cut to the same limits as the input fields.
+    const isText  = (v) => typeof v === "string" && v.trim() !== "";
+    const isDay   = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
+    const cleanTag = (v) => v.trim().slice(0, TAG_MAX);
+    const tagList  = (v) => (Array.isArray(v) ? v.filter(isText).map(cleanTag) : []);
+    // A positive number within `max`, or null. Accepts "80" as well as 80.
+    function positive(v, max) {
+      const n = typeof v === "number" ? v : (isText(v) ? Number(v) : NaN);
+      return Number.isFinite(n) && n > 0 && n <= max ? n : null;
+    }
+
+    function tidyExercise(ex) {
+      if (!ex || !isText(ex.id) || !isText(ex.name)) return null;
+      return Object.assign({}, ex, {
+        name: ex.name.trim().slice(0, NAME_MAX),
+        muscleGroups: tagList(ex.muscleGroups),
+        variations: tagList(ex.variations),
+        metric: METRIC_TYPES[ex.metric] ? ex.metric : DEFAULT_METRIC
       });
     }
 
-    function getAll(store) {
-      return tx(store, "readonly").then((os) => reqToPromise(os.getAll()));
-    }
-    function put(store, value) {
-      return tx(store, "readwrite").then((os) => reqToPromise(os.put(value)));
-    }
-    function del(store, key) {
-      return tx(store, "readwrite").then((os) => reqToPromise(os.delete(key)));
-    }
-    function get(store, key) {
-      return tx(store, "readonly").then((os) => reqToPromise(os.get(key)));
+    function tidySet(set, metric) {
+      const out = emptySet(metric);
+      if (!set || typeof set !== "object") return out;
+      for (const f of metricFields(metric)) {
+        const n = positive(set[f.key], SET_VALUE_MAX);
+        out[f.key] = n === null ? "" : n;
+      }
+      return out;
     }
 
-    // One-time cleanup: remove the old pre-seeded exercise library so the
-    // user can build their own from scratch. Custom exercises are kept, and
-    // past sessions keep their logged history (they store name snapshots).
-    async function clearBuiltinExercises() {
-      const done = await get("settings", "builtinsCleared");
-      if (done) return;
-      const exercises = await getAll("exercises");
-      for (const ex of exercises) {
-        if (!ex.isCustom) {
-          await del("exercises", ex.id);
-          await del("photos", ex.id);
-        }
+    function tidyEntry(entry) {
+      if (!entry || !isText(entry.exerciseId)) return null;
+      const metric = METRIC_TYPES[entry.metric] ? entry.metric : DEFAULT_METRIC;
+      const sets = (Array.isArray(entry.sets) ? entry.sets : [])
+        .map((s) => tidySet(s, metric))
+        .filter((s) => Object.values(s).some((v) => v));   // drop fully blank sets
+      return Object.assign({}, entry, {
+        exerciseName: isText(entry.exerciseName) ? entry.exerciseName.trim().slice(0, NAME_MAX) : "Unknown exercise",
+        muscleGroups: tagList(entry.muscleGroups),
+        variation: isText(entry.variation) ? cleanTag(entry.variation) : "",
+        metric, sets
+      });
+    }
+
+    function tidySession(s) {
+      if (!s || !isText(s.id) || !isDay(s.date)) return null;
+      const dayStart = new Date(s.date + "T00:00:00").getTime();
+      return Object.assign({}, s, {
+        entries: (Array.isArray(s.entries) ? s.entries : []).map(tidyEntry).filter(Boolean),
+        startedAt: Number.isFinite(Number(s.startedAt)) ? Number(s.startedAt) : dayStart,
+        endedAt: Number.isFinite(Number(s.endedAt)) ? Number(s.endedAt) : undefined
+      });
+    }
+
+    function tidyMuscleGroup(mg, index) {
+      if (!mg || !isText(mg.id) || !isText(mg.name)) return null;
+      const freq = Math.round(Number(mg.frequency));
+      return Object.assign({}, mg, {
+        name: cleanTag(mg.name),
+        frequency: Number.isFinite(freq) ? Math.min(FREQUENCY_MAX, Math.max(1, freq)) : DEFAULT_FREQUENCY,
+        color: /^#[0-9a-f]{6}$/i.test(String(mg.color || "")) ? mg.color : MUSCLE_COLOR_PALETTE[index % MUSCLE_COLOR_PALETTE.length]
+      });
+    }
+
+    function tidyBodyweight(bw) {
+      if (!bw || !isDay(bw.date)) return null;
+      const weight = positive(bw.weight, BODYWEIGHT_MAX);
+      if (weight === null) return null;
+      return Object.assign({}, bw, { weight, loggedAt: Number(bw.loggedAt) || 0 });
+    }
+
+    // Settings a backup is allowed to carry, and what a valid value is.
+    const SETTING_RULES = {
+      weightGoal: (v) => v === null || positive(v, BODYWEIGHT_MAX) !== null,
+      builtinsCleared: (v) => typeof v === "boolean",
+      muscleGroupsSeeded: (v) => typeof v === "boolean"
+    };
+
+    // list(table, tidy, order): read a table, tidy every record, sort.
+    function list(table, tidy, order) {
+      return getAll(table).then((rows) => rows.map(tidy).filter(Boolean).sort(order));
+    }
+    const byName      = (a, b) => a.name.localeCompare(b.name);
+    const byDate      = (a, b) => a.date.localeCompare(b.date);
+    const newestFirst = (a, b) => b.date.localeCompare(a.date) || (b.startedAt - a.startedAt);
+
+    // ---- 5. First-run tasks ---------------------------------------------
+    // Each runs at most once per device, guarded by a flag in settings.
+
+    // Older versions shipped a built-in exercise library; it was retired so
+    // people build their own. Custom exercises stay; past sessions are
+    // unaffected because they store their own name snapshots.
+    async function removeBuiltinExercises() {
+      if (await get("settings", "builtinsCleared")) return;
+      for (const ex of await getAll("exercises")) {
+        if (ex.isCustom) continue;
+        await del("exercises", ex.id);
+        await del("photos", ex.id);
       }
       await put("settings", { key: "builtinsCleared", value: true });
     }
 
-    // One-time cleanup: exercises seeded before Hamstrings/Glutes/Calves were
-    // retired still have those tags stored. Strip them and make sure "Legs"
-    // is present instead, so rotation/Strength Index don't reference groups
-    // that no longer exist. Past *sessions* keep their original snapshot -
-    // only the exercise library itself is migrated.
-    async function migrateLegacyMuscleGroups() {
-      const exercises = await getAll("exercises");
-      for (const ex of exercises) {
+    // Hamstrings / Glutes / Calves were folded into "Legs". Exercises still
+    // tagged with them get the tag replaced. Sessions keep their snapshots.
+    async function retagRemovedMuscleGroups() {
+      for (const ex of await getAll("exercises")) {
         const tags = Array.isArray(ex.muscleGroups) ? ex.muscleGroups : [];
-        if (!tags.some((mg) => REMOVED_MUSCLE_GROUPS.includes(mg))) continue;
-        const cleaned = tags.filter((mg) => !REMOVED_MUSCLE_GROUPS.includes(mg));
-        if (!cleaned.includes("Legs")) cleaned.push("Legs");
-        await put("exercises", Object.assign({}, ex, { muscleGroups: cleaned }));
+        if (!tags.some((t) => REMOVED_MUSCLE_GROUPS.includes(t))) continue;
+        const kept = tags.filter((t) => !REMOVED_MUSCLE_GROUPS.includes(t));
+        if (!kept.includes("Legs")) kept.push("Legs");
+        await put("exercises", Object.assign({}, ex, { muscleGroups: kept }));
       }
     }
 
-    // One-time seed: give new installs a starting muscle group list (with
-    // frequency + color already set) that the user is then free to edit,
-    // delete from, or add to in Settings.
-    async function ensureMuscleGroupsSeeded() {
-      const done = await get("settings", "muscleGroupsSeeded");
-      if (done) return;
-      const existing = await getAll("muscleGroups");
-      if (existing.length === 0) {
+    // A new install starts with a default muscle group list to edit.
+    async function seedMuscleGroups() {
+      if (await get("settings", "muscleGroupsSeeded")) return;
+      if ((await getAll("muscleGroups")).length === 0) {
         for (const mg of DEFAULT_MUSCLE_GROUPS) {
           await put("muscleGroups", { id: uid(), name: mg.name, frequency: DEFAULT_FREQUENCY, color: mg.color });
         }
@@ -236,221 +351,140 @@
       await put("settings", { key: "muscleGroupsSeeded", value: true });
     }
 
-    // ---- Record normalisation ------------------------------------------
-    // Everything the views assume about a record's shape is enforced here,
-    // once, on the way out of IndexedDB - so a backup edited by hand (or a
-    // record from an older version) can't take the whole app down. A record
-    // with no usable identity or date returns null and is dropped from the
-    // list; numbers outside their sanity bounds are blanked.
-    const isStr = (v) => typeof v === "string" && v.trim() !== "";
-    const isDateKey = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
-    const posNum = (v, max) => {
-      const n = typeof v === "number" ? v : (typeof v === "string" && v.trim() !== "" ? Number(v) : NaN);
-      return Number.isFinite(n) && n > 0 && n <= max ? n : null;
-    };
-
-    function normalizeExercise(ex) {
-      if (!ex || !isStr(ex.id) || !isStr(ex.name)) return null;
-      return Object.assign({}, ex, {
-        name: ex.name.trim().slice(0, NAME_MAX),
-        muscleGroups: Array.isArray(ex.muscleGroups) ? ex.muscleGroups.filter(isStr).map((m) => m.trim().slice(0, TAG_MAX)) : [],
-        variations: Array.isArray(ex.variations) ? ex.variations.filter(isStr).map((v) => v.trim().slice(0, TAG_MAX)) : [],
-        metric: METRIC_TYPES[ex.metric] ? ex.metric : DEFAULT_METRIC
-      });
-    }
-
-    function normalizeSet(set, metric) {
-      const out = emptySet(metric);
-      if (!set || typeof set !== "object") return out;
-      for (const f of metricFields(metric)) {
-        const n = posNum(set[f.key], SET_VALUE_MAX);
-        out[f.key] = n === null ? "" : n;
-      }
-      return out;
-    }
-
-    function normalizeEntry(entry) {
-      if (!entry || !isStr(entry.exerciseId)) return null;
-      const metric = METRIC_TYPES[entry.metric] ? entry.metric : DEFAULT_METRIC;
-      const sets = (Array.isArray(entry.sets) ? entry.sets : [])
-        .map((x) => normalizeSet(x, metric))
-        .filter((x) => Object.values(x).some((v) => v));
-      return Object.assign({}, entry, {
-        exerciseName: isStr(entry.exerciseName) ? entry.exerciseName.trim().slice(0, NAME_MAX) : "Unknown exercise",
-        muscleGroups: Array.isArray(entry.muscleGroups) ? entry.muscleGroups.filter(isStr).map((m) => m.trim().slice(0, TAG_MAX)) : [],
-        variation: isStr(entry.variation) ? entry.variation.trim().slice(0, TAG_MAX) : "",
-        metric, sets
-      });
-    }
-
-    function normalizeSession(sess) {
-      if (!sess || !isStr(sess.id) || !isDateKey(sess.date)) return null;
-      const dayStart = new Date(sess.date + "T00:00:00").getTime();
-      const startedAt = Number.isFinite(Number(sess.startedAt)) ? Number(sess.startedAt) : dayStart;
-      const endedAt = Number.isFinite(Number(sess.endedAt)) ? Number(sess.endedAt) : undefined;
-      return Object.assign({}, sess, {
-        entries: (Array.isArray(sess.entries) ? sess.entries : []).map(normalizeEntry).filter(Boolean),
-        startedAt, endedAt
-      });
-    }
-
-    function normalizeMuscleGroup(mg, index) {
-      if (!mg || !isStr(mg.id) || !isStr(mg.name)) return null;
-      const freq = Math.round(Number(mg.frequency));
-      return Object.assign({}, mg, {
-        name: mg.name.trim().slice(0, TAG_MAX),
-        frequency: Number.isFinite(freq) ? Math.min(FREQUENCY_MAX, Math.max(1, freq)) : DEFAULT_FREQUENCY,
-        color: /^#[0-9a-f]{6}$/i.test(String(mg.color || "")) ? mg.color : MUSCLE_COLOR_PALETTE[index % MUSCLE_COLOR_PALETTE.length]
-      });
-    }
-
-    function normalizeBodyweight(bw) {
-      if (!bw || !isDateKey(bw.date)) return null;
-      const weight = posNum(bw.weight, BODYWEIGHT_MAX);
-      if (weight === null) return null;
-      return Object.assign({}, bw, { weight, loggedAt: Number(bw.loggedAt) || 0 });
-    }
-
-    // Which settings a backup may carry, and what a valid value looks like.
-    const SETTING_VALID = {
-      weightGoal: (v) => v === null || posNum(v, BODYWEIGHT_MAX) !== null,
-      builtinsCleared: (v) => typeof v === "boolean",
-      muscleGroupsSeeded: (v) => typeof v === "boolean"
-    };
-
+    // ---- 6. What the rest of the app calls ------------------------------
     return {
-      init: () => open().then(clearBuiltinExercises).then(migrateLegacyMuscleGroups).then(ensureMuscleGroupsSeeded),
-      normalizeSession,
+      init: () => open().then(removeBuiltinExercises).then(retagRemovedMuscleGroups).then(seedMuscleGroups),
+      tidySession, // used to check the saved in-progress workout on boot
 
-      // Muscle groups - fully user-managed (see Settings)
-      listMuscleGroups: () => getAll("muscleGroups").then((l) => l.map(normalizeMuscleGroup).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name))),
-      // Colour: first palette entry not already in use, so deleting and
-      // re-adding groups doesn't hand two of them the same swatch.
-      addMuscleGroup: (name, frequency) => getAll("muscleGroups").then((existing) => {
-        const used = new Set(existing.map((m) => m.color));
-        const color = MUSCLE_COLOR_PALETTE.find((c) => !used.has(c)) || MUSCLE_COLOR_PALETTE[existing.length % MUSCLE_COLOR_PALETTE.length];
+      // Muscle groups
+      listMuscleGroups: () => list("muscleGroups", tidyMuscleGroup, byName),
+      addMuscleGroup: async (name, frequency) => {
+        // first palette colour not already in use, so re-adding a deleted group
+        // doesn't give two groups the same swatch
+        const used = new Set((await getAll("muscleGroups")).map((m) => m.color));
+        const color = MUSCLE_COLOR_PALETTE.find((c) => !used.has(c)) || MUSCLE_COLOR_PALETTE[used.size % MUSCLE_COLOR_PALETTE.length];
         return put("muscleGroups", { id: uid(), name, frequency, color });
-      }),
+      },
       updateMuscleGroup: (mg) => put("muscleGroups", mg),
       deleteMuscleGroup: (id) => del("muscleGroups", id),
 
       // Exercises
-      listExercises: () => getAll("exercises").then((l) => l.map(normalizeExercise).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name))),
+      listExercises: () => list("exercises", tidyExercise, byName),
       addExercise: (name, muscleGroups, variations, metric) =>
         put("exercises", { id: uid(), name, muscleGroups, variations: variations || [], metric: metric || DEFAULT_METRIC, isCustom: true }),
       updateExercise: (ex) => put("exercises", ex),
       deleteExercise: (id) => del("exercises", id),
 
-      // Sessions
-      listSessions: () => getAll("sessions").then((l) => l.map(normalizeSession).filter(Boolean).sort((a, b) => b.date.localeCompare(a.date) || (b.startedAt - a.startedAt))),
+      // Sessions (finished workouts)
+      listSessions: () => list("sessions", tidySession, newestFirst),
       saveSession: (session) => put("sessions", session),
       deleteSession: (id) => del("sessions", id),
 
-      // Settings
-      getSetting: (key, fallback) => get("settings", key).then((r) => (r ? r.value : fallback)),
-      setSetting: (key, value) => put("settings", { key, value }),
+      // Body weight: one record per day, saving again the same day replaces it
+      listBodyweight: () => list("bodyweight", tidyBodyweight, byDate),
+      setBodyweight: (date, weight) => put("bodyweight", { date, weight, loggedAt: Date.now() }),
+      deleteBodyweight: (date) => del("bodyweight", date),
 
-      // Photos (one per exercise, stored as a compressed Blob)
+      // Photos: one per exercise, stored as a compressed image Blob
       listPhotos: () => getAll("photos"),
       getPhoto: (exerciseId) => get("photos", exerciseId),
       setPhoto: (exerciseId, blob) => put("photos", { exerciseId, blob }),
       deletePhoto: (exerciseId) => del("photos", exerciseId),
 
-      // Body weight (one entry per day - logging again the same day overwrites it)
-      listBodyweight: () => getAll("bodyweight").then((l) => l.map(normalizeBodyweight).filter(Boolean).sort((a, b) => a.date.localeCompare(b.date))),
-      setBodyweight: (date, weight) => put("bodyweight", { date, weight, loggedAt: Date.now() }),
-      deleteBodyweight: (date) => del("bodyweight", date),
+      // Settings: small named values
+      getSetting: (key, fallback) => get("settings", key).then((r) => (r ? r.value : fallback)),
+      setSetting: (key, value) => put("settings", { key, value }),
 
-      // Export / Import (manual backup today; becomes the seed for real sync later)
+      // ---- Backup -------------------------------------------------------
+      // The export is one JSON object with a section per table. Photos are
+      // turned into base64 text because JSON can't hold binary.
       async exportAll() {
-        const [exercises, sessions, photos, bodyweight, muscleGroups] = await Promise.all([
-          getAll("exercises"), getAll("sessions"), getAll("photos"), getAll("bodyweight"), getAll("muscleGroups")
-        ]);
-        // The in-progress workout draft is device state, not data worth backing up.
-        const settingsList = (await getAll("settings")).filter((s) => s.key !== ACTIVE_SESSION_KEY);
-        // Blobs can't be JSON-stringified directly - encode as base64 data URLs for export.
-        const photosEncoded = await Promise.all(photos.map((p) => new Promise((resolve) => {
+        const [exercises, sessions, bodyweight, muscleGroups, photos, settings] = await Promise.all(
+          ["exercises", "sessions", "bodyweight", "muscleGroups", "photos", "settings"].map(getAll)
+        );
+        const photosAsText = await Promise.all(photos.map((p) => new Promise((resolve) => {
           const reader = new FileReader();
           reader.onload = () => resolve({ exerciseId: p.exerciseId, dataUrl: reader.result });
           reader.readAsDataURL(p.blob);
         })));
-        return { exportedAt: new Date().toISOString(), exercises, sessions, settings: settingsList, photos: photosEncoded, bodyweight, muscleGroups };
+        return {
+          exportedAt: new Date().toISOString(),
+          exercises, sessions, bodyweight, muscleGroups,
+          photos: photosAsText,
+          settings: settings.filter((s) => s.key !== ACTIVE_SESSION_KEY) // the in-progress draft is device state
+        };
       },
-      // Import is a merge: records are matched by id, and muscle groups also
-      // by name (the seeded defaults after an Erase would otherwise come back
-      // twice). Everything is validated and decoded first, then written in a
-      // single transaction - a bad file either imports completely or not at all.
+
+      // Import MERGES a backup into what's already here. Records with the
+      // same id replace the existing one; muscle groups match by name.
+      // Everything is checked and decoded first, then written in a single
+      // transaction, so a bad file either imports completely or not at all.
       async importAll(data) {
-        const STORES = ["exercises", "sessions", "settings", "bodyweight", "muscleGroups", "photos"];
-        // Backups from before v3 may carry a "protein" array; it is ignored.
-        if (!data || typeof data !== "object" || Array.isArray(data) || !STORES.some((k) => Array.isArray(data[k]))) {
+        // Step 1: is this a backup at all? (older files may also carry a
+        // "protein" section, which is simply ignored)
+        const section = (k) => (Array.isArray(data && data[k]) ? data[k] : []);
+        if (!data || typeof data !== "object" || Array.isArray(data) || !TABLE_NAMES.some((k) => section(k).length || Array.isArray(data[k]))) {
           throw new Error("not a We Go Gym backup");
         }
-        const arr = (k) => (Array.isArray(data[k]) ? data[k] : []);
 
-        const exercises = arr("exercises").map(normalizeExercise).filter(Boolean).map((e) => Object.assign(e, { isCustom: true }));
-        const sessions = arr("sessions").map(normalizeSession).filter(Boolean);
-        const bodyweight = arr("bodyweight").map(normalizeBodyweight).filter(Boolean);
-        const settings = arr("settings")
-          .filter((x) => x && isStr(x.key) && Object.prototype.hasOwnProperty.call(SETTING_VALID, x.key) && SETTING_VALID[x.key](x.value))
-          // "200" in a hand-edited file is accepted, but stored as the number 200
-          .map((x) => ({ key: x.key, value: typeof x.value === "string" ? Number(x.value) : x.value }));
+        // Step 2: tidy each section with the same rules used when reading
+        const exercises  = section("exercises").map(tidyExercise).filter(Boolean).map((e) => Object.assign(e, { isCustom: true }));
+        const sessions   = section("sessions").map(tidySession).filter(Boolean);
+        const bodyweight = section("bodyweight").map(tidyBodyweight).filter(Boolean);
+        const settings   = section("settings")
+          .filter((s) => s && isText(s.key) && Object.prototype.hasOwnProperty.call(SETTING_RULES, s.key) && SETTING_RULES[s.key](s.value))
+          .map((s) => ({ key: s.key, value: typeof s.value === "string" ? Number(s.value) : s.value })); // "78" becomes 78
 
-        // Muscle groups match by name (case-insensitive). A match keeps the
-        // existing record's id (exercises reference groups by name, so ids
-        // don't matter) but takes the backup's frequency and colour - the
-        // re-seeded defaults after an Erase must not win over your settings.
-        const existingByName = {};
-        for (const m of (await getAll("muscleGroups")).map(normalizeMuscleGroup).filter(Boolean)) existingByName[m.name.toLowerCase()] = m;
+        // Step 3: muscle groups merge by name. A match keeps the existing id
+        // (exercises refer to groups by name) but takes the backup's
+        // frequency and colour, so re-seeded defaults never win over yours.
+        const byLowerName = {};
+        for (const m of (await getAll("muscleGroups")).map(tidyMuscleGroup).filter(Boolean)) byLowerName[m.name.toLowerCase()] = m;
         const muscleGroups = [];
         let updatedGroups = 0;
-        arr("muscleGroups").map(normalizeMuscleGroup).filter(Boolean).forEach((m) => {
+        for (const m of section("muscleGroups").map(tidyMuscleGroup).filter(Boolean)) {
           const key = m.name.toLowerCase();
-          const current = existingByName[key];
-          if (current) {
-            if (current.frequency !== m.frequency || current.color !== m.color) {
-              muscleGroups.push(Object.assign({}, current, { frequency: m.frequency, color: m.color }));
-              updatedGroups++;
-            }
-          } else {
+          const current = byLowerName[key];
+          if (!current) {
             muscleGroups.push(m);
+            byLowerName[key] = m;
+          } else if (current.frequency !== m.frequency || current.color !== m.color) {
+            const merged = Object.assign({}, current, { frequency: m.frequency, color: m.color });
+            muscleGroups.push(merged);
+            byLowerName[key] = merged;
+            updatedGroups++;
           }
-          existingByName[key] = muscleGroups[muscleGroups.length - 1] || current;
-        });
+        }
 
-        // Photos only for exercises that will exist after the import
+        // Step 4: photos, decoded from text back into Blobs, only for
+        // exercises that will exist after the import
         const knownExercise = new Set((await getAll("exercises")).map((e) => e.id).concat(exercises.map((e) => e.id)));
-        const photos = await Promise.all(arr("photos")
-          .filter((ph) => ph && isStr(ph.exerciseId) && knownExercise.has(ph.exerciseId) && typeof ph.dataUrl === "string" && ph.dataUrl.startsWith("data:image/"))
-          .map(async (ph) => ({ exerciseId: ph.exerciseId, blob: await (await fetch(ph.dataUrl)).blob() })));
+        const photos = await Promise.all(section("photos")
+          .filter((p) => p && isText(p.exerciseId) && knownExercise.has(p.exerciseId) && typeof p.dataUrl === "string" && p.dataUrl.startsWith("data:image/"))
+          .map(async (p) => ({ exerciseId: p.exerciseId, blob: await (await fetch(p.dataUrl)).blob() })));
 
-        const db = await open();
-        await new Promise((resolve, reject) => {
-          const tx = db.transaction(STORES, "readwrite");
-          tx.oncomplete = () => resolve();
-          tx.onerror = () => reject(tx.error);
-          tx.onabort = () => reject(tx.error || new Error("import aborted"));
-          const write = (store, list) => { const os = tx.objectStore(store); for (const r of list) os.put(r); };
-          write("exercises", exercises); write("sessions", sessions);
-          write("settings", settings); write("bodyweight", bodyweight); write("muscleGroups", muscleGroups);
-          write("photos", photos);
-        });
-        return { exercises: exercises.length, sessions: sessions.length, bodyweight: bodyweight.length, muscleGroups: muscleGroups.length - updatedGroups, updatedGroups, photos: photos.length, settings: settings.length };
+        // Step 5: one transaction for everything
+        await writeMany({ exercises, sessions, bodyweight, muscleGroups, photos, settings });
+        return {
+          exercises: exercises.length, sessions: sessions.length, bodyweight: bodyweight.length,
+          muscleGroups: muscleGroups.length - updatedGroups, updatedGroups,
+          photos: photos.length, settings: settings.length
+        };
       },
+
+      // Erase everything, then put back the two things a fresh install has:
+      // the default muscle groups and the "built-ins already removed" flag
+      // (without it the first-run task would delete the next import).
       async clearAll() {
         const db = await open();
-        const stores = ["exercises", "sessions", "settings", "photos", "bodyweight", "muscleGroups"];
         await new Promise((resolve, reject) => {
-          const tx = db.transaction(stores, "readwrite");
+          const tx = db.transaction(TABLE_NAMES, "readwrite");
           tx.oncomplete = () => resolve();
           tx.onerror = () => reject(tx.error);
-          for (const store of stores) tx.objectStore(store).clear();
+          for (const name of TABLE_NAMES) tx.objectStore(name).clear();
         });
-        // The one-time "remove old built-in exercises" cleanup must not run
-        // again on this now-empty library, or it would delete anything
-        // imported next that happens to lack an isCustom flag.
         await put("settings", { key: "builtinsCleared", value: true });
-        await ensureMuscleGroupsSeeded();
+        await seedMuscleGroups();
       }
     };
   })();
@@ -2435,7 +2469,7 @@
       // Resume a workout that was in progress when the page last unloaded -
       // after the same shape checks as a stored session, so a corrupt draft
       // can't come back as "Invalid Date / NaN min".
-      const draft = Repo.normalizeSession(await Repo.getSetting(ACTIVE_SESSION_KEY, null));
+      const draft = Repo.tidySession(await Repo.getSetting(ACTIVE_SESSION_KEY, null));
       if (draft) {
         draft.entries.forEach((entry) => { if (entry.sets.length === 0) entry.sets.push(emptySet(entry.metric)); });
         state.activeSession = draft;
