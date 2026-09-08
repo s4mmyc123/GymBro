@@ -328,3 +328,13 @@ count, so on its second day a lift sits at or below 100 and moves from
 there. The card text and the README paragraph describe the new rule. The
 "+X% since first log" pill on an exercise's detail screen is unchanged: it
 is a different, literal figure.
+
+## 10. Tap a photo to enlarge it
+
+Every exercise photo (Train, the picker, Settings, Personal Records, Lift
+progress, and the detail screen) now opens full-screen when tapped. Tap
+anywhere or press Escape to close, and the phone's pinch-zoom works on the
+enlarged image. New photos are stored at up to 1200px on the long edge
+(was 480px) so they look sharp at full screen; existing photos keep their
+current size until replaced via Edit exercise. Service worker cache
+bumped to v13 because index.html changed.

@@ -13,7 +13,7 @@ A simple, local-first gym tracker: log sessions and lifts, see which muscle grou
 - **Protein**: type any gram amount and add it — no presets, just a fast custom-input field, a 7-day bar chart, and a streak counter. No calorie tracking, just protein.
 - **Muscle groups**: Chest, Back, Shoulders, Biceps, Triceps, Legs (a general lower-body category), Quads, Abs, and Cardio. Compound leg lifts (squats, deadlifts, lunges, etc.) are tagged both "Legs" and "Quads" where relevant, so you can track either the broad or the specific view.
 - **Cardio**: tracked as its own rotation category with a starter set of exercises (Running, Cycling, Rowing Machine, Jump Rope, Elliptical, Stair Climber) logged the same way as lifts — it's excluded from the Strength Index since 1RM doesn't apply to it.
-- **Photos**: attach a photo to any exercise (camera or library) so you can spot it at a glance. Photos are compressed to ~480px before saving, so a full library of them only takes a few MB.
+- **Photos**: attach a photo to any exercise (camera or library) so you can spot it at a glance, and tap any thumbnail to see it full-screen. Photos are compressed to ~1200px before saving, so a full library of them only takes a few tens of MB.
 - **Settings**: manage your exercise library, set your protein goal, and export/import a full JSON backup.
 
 Everything is stored locally on your device in IndexedDB — nothing leaves your phone.

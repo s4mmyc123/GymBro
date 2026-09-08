@@ -834,11 +834,12 @@
 
   // -----------------------------------------------------------------------
   // Photos — compressed client-side before storage so IndexedDB stays small.
-  // A 480px-wide JPEG at 0.75 quality is typically 20-80KB, so even a full
-  // library of 50+ exercise photos stays in the low single-digit MBs.
+  // 1200px on the long edge at 0.8 quality is typically 100-250KB: sharp
+  // enough to fill a phone screen in the lightbox, and a library of 50+
+  // photos still fits comfortably in a few tens of MB.
   // -----------------------------------------------------------------------
   function compressImage(file, maxDim, quality) {
-    maxDim = maxDim || 480; quality = quality || 0.75;
+    maxDim = maxDim || 1200; quality = quality || 0.8;
     return new Promise((resolve, reject) => {
       const img = new Image();
       const url = URL.createObjectURL(file);
@@ -915,6 +916,31 @@
 
   restEl.addEventListener("click", () => stopRest());
 
+  // ---------------------------------------------------------------------
+  // Photo lightbox — full-screen view of an exercise photo. Lives outside
+  // the render cycle like the rest timer. Tap anywhere or press Escape to
+  // close; the page's pinch-zoom still works on the enlarged image.
+  // ---------------------------------------------------------------------
+  const lightboxEl = document.getElementById("lightbox");
+  const lightboxImg = lightboxEl.querySelector("img");
+
+  function openLightbox(exerciseId) {
+    const url = state.photoUrls[exerciseId];
+    if (!url) return;
+    const ex = state.exercises.find((e) => e.id === exerciseId);
+    lightboxImg.src = url;
+    lightboxImg.alt = ex ? ex.name : "Exercise photo";
+    lightboxEl.classList.add("show");
+  }
+
+  function closeLightbox() {
+    lightboxEl.classList.remove("show");
+    lightboxImg.removeAttribute("src");
+  }
+
+  lightboxEl.addEventListener("click", closeLightbox);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && lightboxEl.classList.contains("show")) closeLightbox(); });
+
   // Live "NN min" elapsed pill while a session is active (updates in place,
   // no full re-render needed)
   setInterval(() => {
@@ -966,11 +992,13 @@
     storage: null         // { usage, quota, persisted } from navigator.storage, or null if unsupported
   };
 
+  // Every thumbnail opens the full photo on tap (see openLightbox); the
+  // data attribute is what the click handler looks for.
   function photoThumb(exerciseId, size) {
     size = size || 34;
     const url = state.photoUrls[exerciseId];
     if (!url) return "";
-    return `<img src="${url}" alt="" style="width:${size}px;height:${size}px;border-radius:8px;object-fit:cover;flex-shrink:0" />`;
+    return `<img src="${url}" alt="Exercise photo, tap to enlarge" data-photo-view="${exerciseId}" style="width:${size}px;height:${size}px;border-radius:8px;object-fit:cover;flex-shrink:0;cursor:zoom-in" />`;
   }
 
   async function refreshPhotoUrls() {
@@ -1461,7 +1489,7 @@
     if (!ex) { state.progressDetail = null; return viewProgress(); }
     const metric = ex.metric || DEFAULT_METRIC;
     const photoUrl = state.photoUrls[exId];
-    const photoHTML = photoUrl ? `<img src="${photoUrl}" alt="${esc(ex.name)}" style="width:100%;max-height:180px;object-fit:cover;border-radius:12px;margin:8px 0" />` : "";
+    const photoHTML = photoUrl ? `<img src="${photoUrl}" alt="${esc(ex.name)}" data-photo-view="${exId}" style="width:100%;max-height:180px;object-fit:cover;border-radius:12px;margin:8px 0;cursor:zoom-in" />` : "";
     const deletedNote = ex.deleted ? `<div class="small muted" style="margin-bottom:8px">No longer in your library — showing logged history only.</div>` : "";
 
     // An exercise can carry both kinds of history if its metric was changed
@@ -2092,6 +2120,9 @@
   async function handleClick(e) {
     const t = e.target;
     captureFormName(); // any click may re-render; never lose what's typed in the exercise form
+
+    const photoView = t.closest("[data-photo-view]");
+    if (photoView) { openLightbox(photoView.dataset.photoView); return; }
 
     const navBtn = t.closest("[data-nav]");
     if (navBtn) { navTo(navBtn.dataset.nav); return; }
