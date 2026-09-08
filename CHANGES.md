@@ -5,13 +5,15 @@ Home/Progress, Protein/Weight/shell). This file lists every change made in
 response, in plain language, so you can review each one. Nothing here changes
 what a feature does; each entry is a bug, a crash, or a logic inconsistency.
 
+Each section heading carries the date it was written.
+
 Legend: **[UI]** you would have hit this in normal use. **[Import]** only
 reachable through a hand-edited or corrupted backup file. **[Latent]** would
 bite a future change.
 
 ---
 
-## 1. Data layer (`app.js`, the `Repo` object)
+## 1. Data layer (`app.js`, the `Repo` object)  (7 Sep 2026)
 
 ### 1.1 Every record is shape-checked on the way out of the database  [Import]
 Four separate crashes were reported from hand-edited backups: a session with
@@ -60,7 +62,7 @@ New constants cap a single set value at 10000, a protein entry or goal at
 above anything real. They exist so that a stray `1e9` cannot flatten every
 chart. Values above the cap are rejected with a message (see section 4).
 
-## 2. Calculations (`app.js`, domain helpers)
+## 2. Calculations (`app.js`, domain helpers)  (7 Sep 2026)
 
 ### 2.1 Negative numbers no longer count as lifts or PRs  [UI]
 Typing `-50` for weight was accepted, saved, shown as "Best -50kg × 5" and
@@ -114,7 +116,7 @@ render as "0 min". Weight × reps sets now live in the strength history and
 other sets in the generic history, regardless of the exercise's current
 metric. Section 3 covers the detail screen that shows both.
 
-## 3. Screens (`app.js`, view functions)
+## 3. Screens (`app.js`, view functions)  (7 Sep 2026)
 
 ### 3.1 "Matches/beats your best" now updates as you type  [UI]
 The hint was only computed during a full re-render, so it appeared after
@@ -166,7 +168,7 @@ sideways. Rotation labels wrap. When editing an exercise tagged with a
 since-deleted muscle group, that tag now appears as a selected chip so it
 can be removed. Before, it was invisible but still counted.
 
-## 4. Buttons and input (`app.js`, event handlers and boot)
+## 4. Buttons and input (`app.js`, event handlers and boot)  (7 Sep 2026)
 
 ### 4.1 One click at a time  [UI]
 Tapping Add or Save three times quickly created three identical exercises
@@ -230,7 +232,7 @@ session before being restored, so a corrupt draft cannot show "Invalid Date
 / NaN min". The first render is inside the error guard, so any failure shows
 the error screen rather than "Loading…" forever.
 
-## 5. Shell files
+## 5. Shell files  (7 Sep 2026)
 
 - `styles.css`: protein bar container is tall enough that a 150 g and a
   160 g day no longer render at the same height. Inputs are 16px, which
@@ -242,7 +244,7 @@ the error screen rather than "Loading…" forever.
   as Chrome recommends, instead of the combined value.
 - `sw.js`: cache bumped to v12 and the Apple icon added to the offline list.
 
-## 6. Reported but deliberately not changed
+## 6. Reported but deliberately not changed  (7 Sep 2026)
 
 These are behaviour decisions rather than defects. They are yours to call.
 
@@ -258,12 +260,12 @@ These are behaviour decisions rather than defects. They are yours to call.
   Records** with their stated date. Only the day-count and week totals were
   clamped.
 
-## 7. Housekeeping
+## 7. Housekeeping  (7 Sep 2026)
 
 - Removed `viewRotationFull`, a view function nothing called. The rotation
   list it rendered lives on the Home and Progress tabs via `rotationListHTML`.
 
-## 8. Second verification round
+## 8. Second verification round  (7 Sep 2026)
 
 After the fixes above, four fresh agents re-tested every area against the
 new build. All reported bugs were confirmed fixed with no regressions. They
@@ -316,7 +318,7 @@ rows in Settings, Train, and the picker wrap rather than widening the page.
 - A half-filled set (reps but no weight) is still saved and counted in
   "sets logged"; it is excluded from bests and PRs. Pre-existing behaviour.
 
-## 9. Strength Index baseline (your call from section 6)
+## 9. Strength Index baseline (your call from section 6)  (7 Sep 2026)
 
 Each exercise variation now has its own series, and its baseline is the
 strongest estimated 1RM among its first two logged days rather than the
@@ -329,7 +331,7 @@ there. The card text and the README paragraph describe the new rule. The
 "+X% since first log" pill on an exercise's detail screen is unchanged: it
 is a different, literal figure.
 
-## 10. Tap a photo to enlarge it
+## 10. Tap a photo to enlarge it  (7 Sep 2026)
 
 Every exercise photo (Train, the picker, Settings, Personal Records, Lift
 progress, and the detail screen) now opens full-screen when tapped. Tap
@@ -339,13 +341,13 @@ enlarged image. New photos are stored at up to 1200px on the long edge
 current size until replaced via Edit exercise. Service worker cache
 bumped to v13 because index.html changed.
 
-## 11. Home shows Resume Workout when one is in progress
+## 11. Home shows Resume Workout when one is in progress  (7 Sep 2026)
 
 The Home button read "Start Workout" even with a session open. It now
 reads "Resume Workout" with the exercise count and elapsed time, in the
 orange accent instead of green, whenever a workout is in progress.
 
-## 12. New sets start blank
+## 12. New sets start blank  (7 Sep 2026)
 
 "+ Add set" no longer copies the previous set's weight and reps into the
 new row. The row starts empty; last session's numbers remain visible as
