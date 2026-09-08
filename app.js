@@ -130,15 +130,33 @@
   //   bodyweight    date        { date, weight, loggedAt }
   //   muscleGroups  id          { id, name, frequency, color }
   //   photos        exerciseId  { exerciseId, blob }
-  //   settings      key         { key, value }   keys in use: weightGoal, activeSession,
-  //                                               builtinsCleared, muscleGroupsSeeded
+  //   settings      key         { key, value }   see the list of keys below
   //
-  // Dates are local "YYYY-MM-DD" strings. Times (startedAt, endedAt, loggedAt)
-  // are milliseconds from Date.now(). Ids come from uid().
+  // Things worth knowing about the model:
+  // - Muscle groups are referred to BY NAME everywhere else (exercises.muscleGroups,
+  //   ENTRY.muscleGroups), never by id. That is why importing merges groups by
+  //   name, and why deleting a group leaves its tag on exercises that had it.
+  // - An ENTRY is a snapshot taken when the exercise was added to the workout.
+  //   Renaming or deleting an exercise later never changes past sessions.
+  // - Keys: bodyweight is keyed by date on purpose (one weigh-in per day; saving
+  //   again replaces it). Sessions get a uid() because there can be several a day.
+  // - Dates are local "YYYY-MM-DD" strings. Times (startedAt, endedAt, loggedAt)
+  //   are milliseconds from Date.now(). Ids come from uid().
+  // - exercises.isCustom is legacy: older versions shipped built-in exercises and
+  //   this flag told them apart. It is still written but only read on upgrade.
+  // - sessions has a "date" index that nothing reads; it is kept so old and new
+  //   installs have the same schema.
   //
-  // Reading: every list*() call passes records through a tidy*() function
-  // that fills in missing fields, clamps numbers, and drops records that are
-  // unusable. The rest of the app can therefore trust what it gets.
+  // Settings keys:
+  //   weightGoal          number or null   user preference; included in backups
+  //   activeSession       SESSION or null  the in-progress workout draft; device-only
+  //   builtinsCleared     true             first-run flags, see section 5
+  //   muscleGroupsSeeded  true
+  //
+  // Reading: every list*() call passes records through a tidy*() function.
+  // A record that comes back is guaranteed to have its id / name / date, lists
+  // that are arrays, and numbers that are positive within the caps (or blank).
+  // Unusable records are dropped. Tidy never writes anything back.
   // Writing: the app saves whole records with put(); nothing is patched in place.
   // =======================================================================
   const Repo = (function () {
@@ -188,13 +206,13 @@
           db.onversionchange = () => { db.close(); dbPromise = null; };
           resolve(db);
         };
-        req.onerror = () => reject(req.error);
-        req.onblocked = () => reject(new Error("The app is open in another tab. Close it and reload."));
+        req.onerror = () => { dbPromise = null; reject(req.error); };
+        req.onblocked = () => { dbPromise = null; reject(new Error("The app is open in another tab. Close it and reload.")); };
       });
       return dbPromise;
     }
 
-    // ---- 3. The four operations everything else is built from -----------
+    // ---- 3. Basic operations --------------------------------------------
     // Each one opens a short transaction on one table and returns a Promise.
     function request(table, mode, action) {
       return open().then((db) => new Promise((resolve, reject) => {
@@ -208,19 +226,35 @@
     const put    = (table, rec) => request(table, "readwrite", (t) => t.put(rec));
     const del    = (table, key) => request(table, "readwrite", (t) => t.delete(key));
 
-    // Write several tables in ONE transaction: all of it lands or none of it.
-    function writeMany(tablesToRecords) {
+    // Several tables in ONE transaction: all of it lands or none of it.
+    function inOneTransaction(tables, work) {
       return open().then((db) => new Promise((resolve, reject) => {
-        const tx = db.transaction(Object.keys(tablesToRecords), "readwrite");
+        const tx = db.transaction(tables, "readwrite");
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
-        tx.onabort = () => reject(tx.error || new Error("write aborted"));
-        for (const table in tablesToRecords) {
-          const store = tx.objectStore(table);
-          for (const rec of tablesToRecords[table]) store.put(rec);
-        }
+        tx.onabort = () => reject(tx.error || new Error("transaction aborted"));
+        work(tx);
       }));
     }
+    function writeMany(tablesToRecords) {
+      return inOneTransaction(Object.keys(tablesToRecords), (tx) => {
+        for (const table in tablesToRecords) {
+          for (const rec of tablesToRecords[table]) tx.objectStore(table).put(rec);
+        }
+      });
+    }
+
+    // Settings are { key, value } records; these read and write just the value.
+    const getSetting = (key, fallback) => get("settings", key).then((r) => (r ? r.value : fallback));
+    const setSetting = (key, value) => put("settings", { key, value });
+
+    // list(table, tidy, order): read a table, tidy every record, sort.
+    function list(table, tidy, order) {
+      return getAll(table).then((rows) => rows.map(tidy).filter(Boolean).sort(order));
+    }
+    const byName      = (a, b) => a.name.localeCompare(b.name);
+    const byDate      = (a, b) => a.date.localeCompare(b.date);
+    const newestFirst = (a, b) => b.date.localeCompare(a.date) || (b.startedAt - a.startedAt);
 
     // ---- 4. Tidying records on the way out ------------------------------
     // Rules: a record with no usable id / name / date is dropped (returns
@@ -297,35 +331,32 @@
       return Object.assign({}, bw, { weight, loggedAt: Number(bw.loggedAt) || 0 });
     }
 
-    // Settings a backup is allowed to carry, and what a valid value is.
-    const SETTING_RULES = {
-      weightGoal: (v) => v === null || positive(v, BODYWEIGHT_MAX) !== null,
-      builtinsCleared: (v) => typeof v === "boolean",
-      muscleGroupsSeeded: (v) => typeof v === "boolean"
-    };
-
-    // list(table, tidy, order): read a table, tidy every record, sort.
-    function list(table, tidy, order) {
-      return getAll(table).then((rows) => rows.map(tidy).filter(Boolean).sort(order));
-    }
-    const byName      = (a, b) => a.name.localeCompare(b.name);
-    const byDate      = (a, b) => a.date.localeCompare(b.date);
-    const newestFirst = (a, b) => b.date.localeCompare(a.date) || (b.startedAt - a.startedAt);
-
     // ---- 5. First-run tasks ---------------------------------------------
-    // Each runs at most once per device, guarded by a flag in settings.
+    // Run at every boot. The two flagged tasks happen once per device; the
+    // retag task has no flag because it is cheap and does nothing when there
+    // is nothing to fix. An erased database goes through the same sequence,
+    // so "after Erase" and "fresh install" are the same state.
+    async function runOnce(flag, task) {
+      if (await getSetting(flag, false)) return;
+      await task();
+      await setSetting(flag, true);
+    }
+
+    async function firstRun() {
+      await runOnce("builtinsCleared", removeBuiltinExercises);
+      await retagRemovedMuscleGroups();
+      await runOnce("muscleGroupsSeeded", seedMuscleGroups);
+    }
 
     // Older versions shipped a built-in exercise library; it was retired so
     // people build their own. Custom exercises stay; past sessions are
     // unaffected because they store their own name snapshots.
     async function removeBuiltinExercises() {
-      if (await get("settings", "builtinsCleared")) return;
       for (const ex of await getAll("exercises")) {
         if (ex.isCustom) continue;
         await del("exercises", ex.id);
         await del("photos", ex.id);
       }
-      await put("settings", { key: "builtinsCleared", value: true });
     }
 
     // Hamstrings / Glutes / Calves were folded into "Legs". Exercises still
@@ -342,27 +373,25 @@
 
     // A new install starts with a default muscle group list to edit.
     async function seedMuscleGroups() {
-      if (await get("settings", "muscleGroupsSeeded")) return;
-      if ((await getAll("muscleGroups")).length === 0) {
-        for (const mg of DEFAULT_MUSCLE_GROUPS) {
-          await put("muscleGroups", { id: uid(), name: mg.name, frequency: DEFAULT_FREQUENCY, color: mg.color });
-        }
+      if ((await getAll("muscleGroups")).length > 0) return;
+      for (const mg of DEFAULT_MUSCLE_GROUPS) {
+        await put("muscleGroups", { id: uid(), name: mg.name, frequency: DEFAULT_FREQUENCY, color: mg.color });
       }
-      await put("settings", { key: "muscleGroupsSeeded", value: true });
     }
 
     // ---- 6. What the rest of the app calls ------------------------------
     return {
-      init: () => open().then(removeBuiltinExercises).then(retagRemovedMuscleGroups).then(seedMuscleGroups),
+      init: async () => { await open(); await firstRun(); },
       tidySession, // used to check the saved in-progress workout on boot
 
       // Muscle groups
       listMuscleGroups: () => list("muscleGroups", tidyMuscleGroup, byName),
       addMuscleGroup: async (name, frequency) => {
-        // first palette colour not already in use, so re-adding a deleted group
-        // doesn't give two groups the same swatch
-        const used = new Set((await getAll("muscleGroups")).map((m) => m.color));
-        const color = MUSCLE_COLOR_PALETTE.find((c) => !used.has(c)) || MUSCLE_COLOR_PALETTE[used.size % MUSCLE_COLOR_PALETTE.length];
+        // First palette colour not already in use, so re-adding a deleted group
+        // doesn't give two groups the same swatch. Past 14 groups, cycle.
+        const existing = await getAll("muscleGroups");
+        const used = new Set(existing.map((m) => m.color));
+        const color = MUSCLE_COLOR_PALETTE.find((c) => !used.has(c)) || MUSCLE_COLOR_PALETTE[existing.length % MUSCLE_COLOR_PALETTE.length];
         return put("muscleGroups", { id: uid(), name, frequency, color });
       },
       updateMuscleGroup: (mg) => put("muscleGroups", mg),
@@ -373,7 +402,7 @@
       addExercise: (name, muscleGroups, variations, metric) =>
         put("exercises", { id: uid(), name, muscleGroups, variations: variations || [], metric: metric || DEFAULT_METRIC, isCustom: true }),
       updateExercise: (ex) => put("exercises", ex),
-      deleteExercise: (id) => del("exercises", id),
+      deleteExercise: (id) => del("exercises", id).then(() => del("photos", id)), // no orphan photos
 
       // Sessions (finished workouts)
       listSessions: () => list("sessions", tidySession, newestFirst),
@@ -391,9 +420,8 @@
       setPhoto: (exerciseId, blob) => put("photos", { exerciseId, blob }),
       deletePhoto: (exerciseId) => del("photos", exerciseId),
 
-      // Settings: small named values
-      getSetting: (key, fallback) => get("settings", key).then((r) => (r ? r.value : fallback)),
-      setSetting: (key, value) => put("settings", { key, value }),
+      // Settings: small named values (see the key list in the header)
+      getSetting, setSetting,
 
       // ---- Backup -------------------------------------------------------
       // The export is one JSON object with a section per table. Photos are
@@ -422,10 +450,15 @@
       async importAll(data) {
         // Step 1: is this a backup at all? (older files may also carry a
         // "protein" section, which is simply ignored)
-        const section = (k) => (Array.isArray(data && data[k]) ? data[k] : []);
-        if (!data || typeof data !== "object" || Array.isArray(data) || !TABLE_NAMES.some((k) => section(k).length || Array.isArray(data[k]))) {
+        if (!data || typeof data !== "object" || Array.isArray(data) || !TABLE_NAMES.some((k) => Array.isArray(data[k]))) {
           throw new Error("not a We Go Gym backup");
         }
+        const section = (k) => (Array.isArray(data[k]) ? data[k] : []);
+        // Only user preferences come in from a backup; the first-run flags are
+        // this device's own business and are already set by the time you can import.
+        const SETTING_RULES = {
+          weightGoal: (v) => v === null || positive(v, BODYWEIGHT_MAX) !== null
+        };
 
         // Step 2: tidy each section with the same rules used when reading
         const exercises  = section("exercises").map(tidyExercise).filter(Boolean).map((e) => Object.assign(e, { isCustom: true }));
@@ -472,19 +505,10 @@
         };
       },
 
-      // Erase everything, then put back the two things a fresh install has:
-      // the default muscle groups and the "built-ins already removed" flag
-      // (without it the first-run task would delete the next import).
+      // Erase everything, then do exactly what a fresh install does.
       async clearAll() {
-        const db = await open();
-        await new Promise((resolve, reject) => {
-          const tx = db.transaction(TABLE_NAMES, "readwrite");
-          tx.oncomplete = () => resolve();
-          tx.onerror = () => reject(tx.error);
-          for (const name of TABLE_NAMES) tx.objectStore(name).clear();
-        });
-        await put("settings", { key: "builtinsCleared", value: true });
-        await seedMuscleGroups();
+        await inOneTransaction(TABLE_NAMES, (tx) => TABLE_NAMES.forEach((name) => tx.objectStore(name).clear()));
+        await firstRun();
       }
     };
   })();
@@ -2307,8 +2331,7 @@
     if (delEx) {
       if (confirm("Delete this exercise? Past sessions keep their logged history.")) {
         if (editingExerciseId === delEx.dataset.delExercise) { customExerciseOpen = false; resetExerciseForm(); }
-        await Repo.deleteExercise(delEx.dataset.delExercise);
-        await Repo.deletePhoto(delEx.dataset.delExercise);
+        await Repo.deleteExercise(delEx.dataset.delExercise); // removes its photo too
         state.exercises = await Repo.listExercises();
         await refreshPhotoUrls();
         render();

@@ -435,3 +435,24 @@ same tables, same keys, same record shapes, same version. Verified with a
 fresh install, an upgrade from a version-2 database holding old built-in
 exercises, retired tags, and protein data, and a full export, erase, and
 import round trip including a photo.
+
+## 21. Data layer: audit follow-ups  (8 Sep 2026)
+
+A fresh agent audited the rewritten layer. Its verdict was that the
+structure is right; the follow-ups it listed are now in:
+- Fixed a regression from the rewrite: once all fourteen palette colours
+  were in use, every new muscle group got the first colour. They cycle again.
+- Erase now runs the exact first-run sequence a new install runs, so the
+  two states are guaranteed identical, and it shares the one multi-table
+  transaction helper with import (which also gives Erase an abort handler
+  it was missing).
+- The first-run tasks use one small "run once, then set the flag" helper.
+- A backup now imports only the weight goal from its settings section; the
+  two first-run flags are the receiving device's own business.
+- Deleting an exercise removes its photo inside the data layer, so no
+  screen can forget to.
+- A failed database open can be retried without a reload.
+- The header now explains the whole model in one read: groups are referred
+  to by name, entries are snapshots, why weigh-ins are keyed by date, every
+  settings key with its meaning, which fields are legacy, and what "tidy"
+  guarantees.
