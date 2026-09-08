@@ -109,10 +109,12 @@ html, body {
   justify-content: space-between;
   gap: 10px;
 }
-/* Long names (e.g. from an imported backup) wrap instead of forcing the
-   page to scroll sideways; flex children need min-width:0 to allow it. */
-.card, .sheet { overflow-wrap: anywhere; }
-.row > div, .row > span, .ex-title strong, .pick-row > span { min-width: 0; }
+/* Long names wrap at spaces; a single word only breaks if it is wider than
+   its container (an imported 300-character name), never just because a
+   flex neighbour wanted the room. "anywhere" did the latter and split
+   "Pulldown" into "Pulldo / wn" on phones. */
+.card, .sheet { overflow-wrap: break-word; }
+.row > div, .row > span, .pick-row > span { min-width: 0; }
 
 .row + .row {
   margin-top: 8px;
@@ -366,7 +368,7 @@ label {
   align-items: center;
   gap: 10px;
 }
-.rotation-item > .small { overflow-wrap: anywhere; }
+.rotation-item > .small { overflow-wrap: break-word; }
 .rotation-item .bar-track {
   flex: 1;
   height: 6px;
@@ -415,7 +417,12 @@ label {
   align-items: center;
   margin-bottom: 8px;
 }
-.exercise-block .ex-title strong { font-size: 14px; }
+.exercise-block .ex-title strong {
+  font-size: 14px;
+  flex-wrap: wrap;   /* name, then the variation tag on its own line if the row is tight */
+  min-width: 0;
+  row-gap: 4px;
+}
 
 .empty {
   text-align: center;

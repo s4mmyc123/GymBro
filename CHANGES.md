@@ -362,3 +362,14 @@ vertical column of letters. Buttons now never shrink or wrap; the input
 beside them gives way instead. The Weight tab's change-over-range pill
 moved to its own line under the big number so it no longer collides with
 the input.
+
+## 14. Words no longer split across lines  (8 Sep 2026)
+
+Exercise names in a workout could break mid-word ("Pulldo / wn") when the
+photo, the variation tag, and the Remove button competed for the row. The
+rule that allowed long imported names to wrap was too aggressive. Text now
+wraps at spaces; a single word only breaks if it is wider than the whole
+container. In a workout the exercise name stays whole and the variation
+tag moves to its own line when the row is tight. A scan of Home, Train,
+Progress, Settings, and the picker at phone width found no remaining split
+words and no sideways overflow.
