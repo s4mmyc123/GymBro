@@ -344,3 +344,9 @@ bumped to v13 because index.html changed.
 The Home button read "Start Workout" even with a session open. It now
 reads "Resume Workout" with the exercise count and elapsed time, in the
 orange accent instead of green, whenever a workout is in progress.
+
+## 12. New sets start blank
+
+"+ Add set" no longer copies the previous set's weight and reps into the
+new row. The row starts empty; last session's numbers remain visible as
+grey placeholders for reference only.

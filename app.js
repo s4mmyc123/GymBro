@@ -2306,14 +2306,11 @@
     }
     const addSet = t.closest("[data-add-set]");
     if (addSet) {
-      // Duplicate the previous set's values — most sets repeat, so this
-      // saves typing; just edit if the numbers change.
+      // A new set starts blank (Sam's preference) — the previous session's
+      // numbers still show as placeholders for reference, but nothing is
+      // pre-filled that could be saved by accident.
       const entry = state.activeSession.entries[Number(addSet.dataset.addSet)];
-      const metric = entry.metric || DEFAULT_METRIC;
-      const last = entry.sets[entry.sets.length - 1];
-      const copy = emptySet(metric);
-      if (last) metricFields(metric).forEach((f) => { copy[f.key] = last[f.key] || ""; });
-      entry.sets.push(copy);
+      entry.sets.push(emptySet(entry.metric || DEFAULT_METRIC));
       persistActiveSession();
       render();
       return;
