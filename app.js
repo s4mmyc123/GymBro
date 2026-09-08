@@ -136,6 +136,7 @@
           }
           if (db.objectStoreNames.contains("protein")) {
             db.deleteObjectStore("protein"); // feature removed; its data goes with it
+            req.transaction.objectStore("settings").delete("proteinGoal");
           }
           if (!db.objectStoreNames.contains("settings")) {
             db.createObjectStore("settings", { keyPath: "key" });
@@ -318,7 +319,7 @@
     };
 
     return {
-      init: () => open().then(clearBuiltinExercises).then(migrateLegacyMuscleGroups).then(ensureMuscleGroupsSeeded).then(() => del("settings", "proteinGoal")),
+      init: () => open().then(clearBuiltinExercises).then(migrateLegacyMuscleGroups).then(ensureMuscleGroupsSeeded),
       normalizeSession,
 
       // Muscle groups — fully user-managed (see Settings)
@@ -391,7 +392,7 @@
         const sessions = arr("sessions").map(normalizeSession).filter(Boolean);
         const bodyweight = arr("bodyweight").map(normalizeBodyweight).filter(Boolean);
         const settings = arr("settings")
-          .filter((x) => x && isStr(x.key) && SETTING_VALID[x.key] && SETTING_VALID[x.key](x.value))
+          .filter((x) => x && isStr(x.key) && Object.prototype.hasOwnProperty.call(SETTING_VALID, x.key) && SETTING_VALID[x.key](x.value))
           // "200" in a hand-edited file is accepted, but stored as the number 200
           .map((x) => ({ key: x.key, value: typeof x.value === "string" ? Number(x.value) : x.value }));
 
@@ -477,12 +478,6 @@
   // startedAt breaking ties so two sessions on one day keep their real order.
   function chronological(sessions) {
     return sessions.slice().sort((a, b) => a.date.localeCompare(b.date) || (a.startedAt - b.startedAt));
-  }
-
-  // Totals of user-entered decimals can pick up float noise; one decimal is
-  // all a gram or kilo figure ever needs.
-  function fmtNum(n) {
-    return Math.round(n * 10) / 10;
   }
 
   function fmtDaysAgo(n) {
@@ -929,7 +924,6 @@
       train: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 6.5v11M17.5 6.5v11M2 10v4M22 10v4M6.5 12h11"/></svg>',
       chart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V9M12 19V5M20 19v-7"/></svg>',
       gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>',
-      plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
       back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>',
       camera: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-2h6l2 2h3v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V8Z"/><circle cx="12" cy="14" r="3.2"/></svg>',
       scale: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M12 8.5v3.2l2.6 1.8"/></svg>'
@@ -1013,9 +1007,9 @@
     ]);
     state.exercises = exercises;
     state.sessions = sessions;
+    state.bodyweight = bodyweight;
     // A goal of null or text (possible via an old backup) must not reach the
     // chart; fall back rather than trust the store.
-    state.bodyweight = bodyweight;
     state.weightGoal = Number(weightGoal) > 0 && Number(weightGoal) <= BODYWEIGHT_MAX ? Number(weightGoal) : null;
     state.muscleGroups = muscleGroups;
     await refreshPhotoUrls();
@@ -1135,7 +1129,6 @@
             ? `<button class="btn primary block" data-nav="train" style="margin-top:10px">Resume Workout <span class="muted" style="font-weight:600;font-size:12px;color:#3a2410">· ${state.activeSession.entries.length} exercise${state.activeSession.entries.length === 1 ? "" : "s"} · ${sessionElapsedText()}</span></button>`
             : `<button class="btn success block" data-nav="train" style="margin-top:10px">Start Workout</button>`}
         </div>
-
 
         <div class="card">
           ${bodyWeightMini()}

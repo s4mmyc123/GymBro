@@ -402,3 +402,12 @@ protein data remains on the device. Backups no longer include protein;
 an older backup that still has a protein section imports fine with that
 section ignored. The nav now has five tabs. Descriptions in the README,
 manifest, and page metadata were updated to match.
+
+## 18. Post-removal tidy-up  (8 Sep 2026)
+
+Two hunters checked the app and the code after the protein removal. The
+running app had no leftovers on any screen. In the code: an unused number
+formatter, an unused icon, and an unused grid style were deleted; a
+misplaced comment moved; the stored protein goal is now removed once,
+during the database upgrade, instead of on every launch; and the backup
+settings check now accepts only known keys, not inherited object names.
