@@ -675,6 +675,13 @@
     `;
   }
 
+  // A best set as a green pill with the estimated 1RM on a small line under
+  // it. Two short lines fit beside a long exercise name; one long pill
+  // could not shrink and ran off the card.
+  function bestPillHTML(b) {
+    return `<span style="text-align:right;flex-shrink:0"><span class="pill good">${b.weight}kg × ${b.reps}</span><div class="small muted" style="margin-top:3px">~${Math.round(b.orm)}kg 1RM</div></span>`;
+  }
+
   // Best set (by est 1RM) per exercise across all sessions. Only sets with
   // both a weight and a rep count qualify - time/distance/reps-only sets
   // would otherwise register as a 0kg "best" and show up under Lift
@@ -1431,7 +1438,7 @@
             prs.map((pr) => `
               <div class="row list-tap" data-view-exercise="${pr.exerciseId}">
                 <span style="display:flex;align-items:center;gap:8px">${photoThumb(pr.exerciseId)}<span>${esc(pr.exerciseName)}${pr.variation ? ` <span class="variation-tag">${esc(pr.variation)}</span>` : ""}<div class="small muted">${fmtDate(pr.date)}</div></span></span>
-                <span class="pill good">${pr.weight}kg × ${pr.reps} <span class="muted">(~${Math.round(pr.orm)}kg 1RM)</span></span>
+                ${bestPillHTML(pr)}
               </div>
             `).join("")}
         </div>
@@ -1442,7 +1449,7 @@
             used.sort((a, b) => a.name.localeCompare(b.name)).map((ex) => `
               <div class="row list-tap" data-view-exercise="${ex.id}">
                 <span style="display:flex;align-items:center;gap:8px">${photoThumb(ex.id)}${esc(ex.name)}</span>
-                <span class="pill good">${best[ex.id].weight}kg × ${best[ex.id].reps} <span class="muted">(~${Math.round(best[ex.id].orm)}kg 1RM)</span></span>
+                ${bestPillHTML(best[ex.id])}
               </div>
             `).join("")}
         </div>
@@ -1496,7 +1503,8 @@
       const showVariations = perVariation.length > 1 || (perVariation.length === 1 && perVariation[0].variation);
       strengthHTML = `
           <div class="btn-row" style="margin-bottom:12px">
-            <span class="pill good">Best: ${best.weight}kg × ${best.reps} <span class="muted">(~${Math.round(best.orm)}kg 1RM)</span> · ${fmtDate(best.date)}</span>
+            <span class="pill good">Best ${best.weight}kg × ${best.reps}</span>
+            <span class="small muted" style="align-self:center">~${Math.round(best.orm)}kg 1RM · ${fmtDate(best.date)}</span>
             ${delta !== null ? `<span class="pill ${delta >= 0 ? "good" : "bad"}">${delta >= 0 ? "+" : ""}${delta}% since first log</span>` : ""}
           </div>
           ${showVariations ? `

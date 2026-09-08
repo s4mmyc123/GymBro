@@ -456,3 +456,11 @@ structure is right; the follow-ups it listed are now in:
   to by name, entries are snapshots, why weigh-ins are keyed by date, every
   settings key with its meaning, which fields are legacy, and what "tidy"
   guarantees.
+
+## 22. Best-set pills no longer run off the card  (8 Sep 2026)
+
+On Progress, the green "66kg × 10 (~88kg 1RM)" pill could not shrink, so
+next to a long exercise name it was clipped at the card edge. The pill now
+holds only the set, and the estimated 1RM sits on a small line beneath it,
+right-aligned. Same change on the exercise detail screen's Best pill,
+where the 1RM and date moved to a line beside it.
