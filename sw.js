@@ -1,7 +1,7 @@
 // We Go Gym service worker: caches the app shell so it works with no signal.
 // Data itself lives in IndexedDB (handled in app.js), untouched by this file.
 
-const CACHE = "we-go-gym-v15";
+const CACHE = "we-go-gym-v16";
 const ASSETS = [
   "./",
   "./index.html",
@@ -10,6 +10,8 @@ const ASSETS = [
   "./manifest.json",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
+  "./icons/icon-192-maskable.png",
+  "./icons/icon-512-maskable.png",
   "./icons/apple-touch-icon.png"
 ];
 

@@ -475,3 +475,15 @@ storage cost was not worth it. The database moves to version 4, which
 deletes the photos table on first open. Backups no longer include photos;
 an older backup with a photos section imports with that section ignored.
 Service worker cache bumped to v15.
+
+## 24. New app icon  (10 Sep 2026)
+
+The home-screen icon is now a pencil drawing of a winged figure on white,
+cropped to the head and torso. Five files replace the old orange icons:
+192 and 512 pixels for Android and the manifest, 180 pixels for iPhone, and
+two "maskable" versions with white padding so Android's circular icon
+shape does not clip the wings. The manifest's background colour is white
+to match. Service worker cache bumped to v16. Already-installed phones
+keep the old icon until the app is removed from the home screen and added
+again; that is how iOS and Android cache icons, not something the app can
+force.
