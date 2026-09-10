@@ -464,3 +464,14 @@ next to a long exercise name it was clipped at the card edge. The pill now
 holds only the set, and the estimated 1RM sits on a small line beneath it,
 right-aligned. Same change on the exercise detail screen's Best pill,
 where the 1RM and date moved to a line beside it.
+
+## 23. Exercise photos removed  (10 Sep 2026)
+
+Photos are gone from the whole app: the thumbnails in Train, the picker,
+Settings, Personal records and Lift progress, the image on the exercise
+detail screen, the photo field in the exercise form, and the tap-to-enlarge
+view. Variations already identify a specific machine or grip, so the
+storage cost was not worth it. The database moves to version 4, which
+deletes the photos table on first open. Backups no longer include photos;
+an older backup with a photos section imports with that section ignored.
+Service worker cache bumped to v15.

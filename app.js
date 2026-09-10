@@ -51,7 +51,7 @@
   const REMOVED_MUSCLE_GROUPS = ["Hamstrings", "Glutes", "Calves"];
 
   // The exercise library is fully user-built - you add each exercise
-  // yourself (with muscle groups, optional variations and an optional photo).
+  // yourself (with muscle groups and optional variations).
   // The old pre-seeded defaults were retired; clearBuiltinExercises below
   // removes them once from devices that had them.
 
@@ -95,7 +95,7 @@
   }
 
   const DB_NAME = "ironLogDB";
-  const DB_VERSION = 3; // v3: protein tracking removed - the store is deleted on upgrade
+  const DB_VERSION = 4; // v3 dropped protein tracking; v4 dropped exercise photos
   const ACTIVE_SESSION_KEY = "activeSession"; // settings-store key for the in-progress workout draft
 
   // Local calendar date as YYYY-MM-DD. toISOString() would give the *UTC*
@@ -129,7 +129,6 @@
   //                               SET   = { weight, reps } or { reps } or { minutes } or { distance }
   //   bodyweight    date        { date, weight, loggedAt }
   //   muscleGroups  id          { id, name, frequency, color }
-  //   photos        exerciseId  { exerciseId, blob }
   //   settings      key         { key, value }   see the list of keys below
   //
   // Things worth knowing about the model:
@@ -167,13 +166,15 @@
       sessions:     { keyPath: "id", indexes: ["date"] },
       bodyweight:   { keyPath: "date" },
       muscleGroups: { keyPath: "id" },
-      photos:       { keyPath: "exerciseId" },
       settings:     { keyPath: "key" }
     };
     const TABLE_NAMES = Object.keys(TABLES);
     // Tables from old versions that no longer exist. Dropped on upgrade,
     // together with any settings that only they used.
-    const RETIRED = [{ table: "protein", settings: ["proteinGoal"] }];
+    const RETIRED = [
+      { table: "protein", settings: ["proteinGoal"] }, // v3
+      { table: "photos",  settings: [] }                // v4: exercise photos removed
+    ];
 
     // ---- 2. Opening the database ----------------------------------------
     let dbPromise = null;
@@ -355,7 +356,6 @@
       for (const ex of await getAll("exercises")) {
         if (ex.isCustom) continue;
         await del("exercises", ex.id);
-        await del("photos", ex.id);
       }
     }
 
@@ -402,7 +402,7 @@
       addExercise: (name, muscleGroups, variations, metric) =>
         put("exercises", { id: uid(), name, muscleGroups, variations: variations || [], metric: metric || DEFAULT_METRIC, isCustom: true }),
       updateExercise: (ex) => put("exercises", ex),
-      deleteExercise: (id) => del("exercises", id).then(() => del("photos", id)), // no orphan photos
+      deleteExercise: (id) => del("exercises", id),
 
       // Sessions (finished workouts)
       listSessions: () => list("sessions", tidySession, newestFirst),
@@ -414,31 +414,18 @@
       setBodyweight: (date, weight) => put("bodyweight", { date, weight, loggedAt: Date.now() }),
       deleteBodyweight: (date) => del("bodyweight", date),
 
-      // Photos: one per exercise, stored as a compressed image Blob
-      listPhotos: () => getAll("photos"),
-      getPhoto: (exerciseId) => get("photos", exerciseId),
-      setPhoto: (exerciseId, blob) => put("photos", { exerciseId, blob }),
-      deletePhoto: (exerciseId) => del("photos", exerciseId),
-
       // Settings: small named values (see the key list in the header)
       getSetting, setSetting,
 
       // ---- Backup -------------------------------------------------------
-      // The export is one JSON object with a section per table. Photos are
-      // turned into base64 text because JSON can't hold binary.
+      // The export is one JSON object with a section per table.
       async exportAll() {
-        const [exercises, sessions, bodyweight, muscleGroups, photos, settings] = await Promise.all(
-          ["exercises", "sessions", "bodyweight", "muscleGroups", "photos", "settings"].map(getAll)
+        const [exercises, sessions, bodyweight, muscleGroups, settings] = await Promise.all(
+          ["exercises", "sessions", "bodyweight", "muscleGroups", "settings"].map(getAll)
         );
-        const photosAsText = await Promise.all(photos.map((p) => new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve({ exerciseId: p.exerciseId, dataUrl: reader.result });
-          reader.readAsDataURL(p.blob);
-        })));
         return {
           exportedAt: new Date().toISOString(),
           exercises, sessions, bodyweight, muscleGroups,
-          photos: photosAsText,
           settings: settings.filter((s) => s.key !== ACTIVE_SESSION_KEY) // the in-progress draft is device state
         };
       },
@@ -489,19 +476,13 @@
           }
         }
 
-        // Step 4: photos, decoded from text back into Blobs, only for
-        // exercises that will exist after the import
-        const knownExercise = new Set((await getAll("exercises")).map((e) => e.id).concat(exercises.map((e) => e.id)));
-        const photos = await Promise.all(section("photos")
-          .filter((p) => p && isText(p.exerciseId) && knownExercise.has(p.exerciseId) && typeof p.dataUrl === "string" && p.dataUrl.startsWith("data:image/"))
-          .map(async (p) => ({ exerciseId: p.exerciseId, blob: await (await fetch(p.dataUrl)).blob() })));
-
-        // Step 5: one transaction for everything
-        await writeMany({ exercises, sessions, bodyweight, muscleGroups, photos, settings });
+        // Step 4: one transaction for everything. (Backups from before v4 may
+        // carry a "photos" section; it is ignored.)
+        await writeMany({ exercises, sessions, bodyweight, muscleGroups, settings });
         return {
           exercises: exercises.length, sessions: sessions.length, bodyweight: bodyweight.length,
           muscleGroups: muscleGroups.length - updatedGroups, updatedGroups,
-          photos: photos.length, settings: settings.length
+          settings: settings.length
         };
       },
 
@@ -868,34 +849,6 @@
   }
 
   // -----------------------------------------------------------------------
-  // Photos - compressed client-side before storage so IndexedDB stays small.
-  // 1200px on the long edge at 0.8 quality is typically 100-250KB: sharp
-  // enough to fill a phone screen in the lightbox, and a library of 50+
-  // photos still fits comfortably in a few tens of MB.
-  // -----------------------------------------------------------------------
-  function compressImage(file, maxDim, quality) {
-    maxDim = maxDim || 1200; quality = quality || 0.8;
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      const url = URL.createObjectURL(file);
-      img.onload = () => {
-        let { width, height } = img;
-        if (width > height && width > maxDim) { height = Math.round(height * (maxDim / width)); width = maxDim; }
-        else if (height > maxDim) { width = Math.round(width * (maxDim / height)); height = maxDim; }
-        const canvas = document.createElement("canvas");
-        canvas.width = width; canvas.height = height;
-        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
-        canvas.toBlob((blob) => {
-          URL.revokeObjectURL(url);
-          if (blob) resolve(blob); else reject(new Error("compression failed"));
-        }, "image/jpeg", quality);
-      };
-      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("could not read image")); };
-      img.src = url;
-    });
-  }
-
-  // -----------------------------------------------------------------------
   // Tiny render / router utilities
   // -----------------------------------------------------------------------
   const appEl = document.getElementById("app");
@@ -951,31 +904,6 @@
 
   restEl.addEventListener("click", () => stopRest());
 
-  // ---------------------------------------------------------------------
-  // Photo lightbox - full-screen view of an exercise photo. Lives outside
-  // the render cycle like the rest timer. Tap anywhere or press Escape to
-  // close; the page's pinch-zoom still works on the enlarged image.
-  // ---------------------------------------------------------------------
-  const lightboxEl = document.getElementById("lightbox");
-  const lightboxImg = lightboxEl.querySelector("img");
-
-  function openLightbox(exerciseId) {
-    const url = state.photoUrls[exerciseId];
-    if (!url) return;
-    const ex = state.exercises.find((e) => e.id === exerciseId);
-    lightboxImg.src = url;
-    lightboxImg.alt = ex ? ex.name : "Exercise photo";
-    lightboxEl.classList.add("show");
-  }
-
-  function closeLightbox() {
-    lightboxEl.classList.remove("show");
-    lightboxImg.removeAttribute("src");
-  }
-
-  lightboxEl.addEventListener("click", closeLightbox);
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && lightboxEl.classList.contains("show")) closeLightbox(); });
-
   // Live "NN min" elapsed pill while a session is active (updates in place,
   // no full re-render needed)
   setInterval(() => {
@@ -990,7 +918,6 @@
       chart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V9M12 19V5M20 19v-7"/></svg>',
       gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>',
       back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>',
-      camera: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-2h6l2 2h3v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V8Z"/><circle cx="12" cy="14" r="3.2"/></svg>',
       scale: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M12 8.5v3.2l2.6 1.8"/></svg>'
     };
     return icons[name] || "";
@@ -1017,28 +944,10 @@
     weightGoal: null,    // target body weight (kg) - drawn as a horizontal line on the chart
     muscleGroups: [],
     weightRange: "2w",   // defaults to 2 weeks, per WEIGHT_RANGES above
-    photoUrls: {},       // exerciseId -> object URL for its photo (if any)
     activeSession: null,  // in-memory in-progress workout
     progressDetail: null, // exerciseId being viewed in detail
     storage: null         // { usage, quota, persisted } from navigator.storage, or null if unsupported
   };
-
-  // Every thumbnail opens the full photo on tap (see openLightbox); the
-  // data attribute is what the click handler looks for.
-  function photoThumb(exerciseId, size) {
-    size = size || 34;
-    const url = state.photoUrls[exerciseId];
-    if (!url) return "";
-    return `<img src="${url}" alt="Exercise photo, tap to enlarge" data-photo-view="${exerciseId}" style="width:${size}px;height:${size}px;border-radius:8px;object-fit:cover;flex-shrink:0;cursor:zoom-in" />`;
-  }
-
-  async function refreshPhotoUrls() {
-    for (const key in state.photoUrls) URL.revokeObjectURL(state.photoUrls[key]);
-    const photos = await Repo.listPhotos();
-    const map = {};
-    for (const p of photos) map[p.exerciseId] = URL.createObjectURL(p.blob);
-    state.photoUrls = map;
-  }
 
   // Storage health: how much of the browser's quota this app is using, and
   // whether the browser has agreed to protect it from eviction. Both APIs are
@@ -1077,7 +986,6 @@
     // chart; fall back rather than trust the store.
     state.weightGoal = Number(weightGoal) > 0 && Number(weightGoal) <= BODYWEIGHT_MAX ? Number(weightGoal) : null;
     state.muscleGroups = muscleGroups;
-    await refreshPhotoUrls();
   }
 
   // The in-progress workout lives in memory, but phones reload PWAs freely
@@ -1145,7 +1053,7 @@
     state.route = route;
     state.progressDetail = null;
     render();
-    // Storage numbers drift as you log sets and add photos; re-measure on
+    // Storage numbers drift as you log sets; re-measure on
     // each visit to Settings and repaint once the (async) answer is back.
     if (route === "settings") refreshStorageInfo().then(() => { if (state.route === "settings") render(); });
   }
@@ -1289,7 +1197,7 @@
     return `
       <div class="exercise-block" data-entry="${ei}">
         <div class="ex-title">
-          <strong style="display:flex;align-items:center;gap:8px">${photoThumb(entry.exerciseId, 28)}${esc(exerciseDisplayName(entry.exerciseId, entry.exerciseName))}${v ? `<span class="variation-tag">${esc(v)}</span>` : ""}</strong>
+          <strong style="display:flex;align-items:center;gap:8px">${esc(exerciseDisplayName(entry.exerciseId, entry.exerciseName))}${v ? `<span class="variation-tag">${esc(v)}</span>` : ""}</strong>
           <button class="btn sm danger" data-remove-exercise="${ei}">Remove</button>
         </div>
         <div class="small muted" style="margin-bottom:8px">${esc((entry.muscleGroups || []).join(", "))}</div>
@@ -1364,7 +1272,7 @@
       ${mg ? `<div class="small muted" style="margin:10px 2px 6px">${esc(mg)}</div>` : ""}
       ${grouped[mg].map((ex) => `
         <div class="pick-row" data-pick-exercise="${ex.id}">
-          <span style="display:flex;align-items:center;gap:10px">${photoThumb(ex.id, 32)}
+          <span style="display:flex;align-items:center;gap:10px">
             <span>${esc(ex.name)}${ex.variations && ex.variations.length ? `<div class="small muted">${esc(ex.variations.join(" · "))}</div>` : ""}${(ex.metric || DEFAULT_METRIC) !== "weight_reps" ? `<div class="small muted">${metricLabel(ex.metric)}</div>` : ""}</span>
           </span>
           <span style="display:flex;align-items:center;gap:8px"><span class="small muted">${esc(ex.muscleGroups.join(", "))}</span><span class="chev">›</span></span>
@@ -1437,7 +1345,7 @@
           ${prs.length === 0 ? `<div class="empty">No PRs yet. Log a session to start tracking.</div>` :
             prs.map((pr) => `
               <div class="row list-tap" data-view-exercise="${pr.exerciseId}">
-                <span style="display:flex;align-items:center;gap:8px">${photoThumb(pr.exerciseId)}<span>${esc(pr.exerciseName)}${pr.variation ? ` <span class="variation-tag">${esc(pr.variation)}</span>` : ""}<div class="small muted">${fmtDate(pr.date)}</div></span></span>
+                <span style="display:flex;align-items:center;gap:8px"><span>${esc(pr.exerciseName)}${pr.variation ? ` <span class="variation-tag">${esc(pr.variation)}</span>` : ""}<div class="small muted">${fmtDate(pr.date)}</div></span></span>
                 ${bestPillHTML(pr)}
               </div>
             `).join("")}
@@ -1448,7 +1356,7 @@
           ${used.length === 0 ? `<div class="empty">Log a session to start tracking lifts.</div>` :
             used.sort((a, b) => a.name.localeCompare(b.name)).map((ex) => `
               <div class="row list-tap" data-view-exercise="${ex.id}">
-                <span style="display:flex;align-items:center;gap:8px">${photoThumb(ex.id)}${esc(ex.name)}</span>
+                <span style="display:flex;align-items:center;gap:8px">${esc(ex.name)}</span>
                 ${bestPillHTML(best[ex.id])}
               </div>
             `).join("")}
@@ -1480,8 +1388,6 @@
     const ex = state.exercises.find((e) => e.id === exId) || exerciseStubFromSessions(exId);
     if (!ex) { state.progressDetail = null; return viewProgress(); }
     const metric = ex.metric || DEFAULT_METRIC;
-    const photoUrl = state.photoUrls[exId];
-    const photoHTML = photoUrl ? `<img src="${photoUrl}" alt="${esc(ex.name)}" data-photo-view="${exId}" style="width:100%;max-height:180px;object-fit:cover;border-radius:12px;margin:8px 0;cursor:zoom-in" />` : "";
     const deletedNote = ex.deleted ? `<div class="small muted" style="margin-bottom:8px">No longer in your library. Showing logged history only.</div>` : "";
 
     // An exercise can carry both kinds of history if its metric was changed
@@ -1537,7 +1443,6 @@
         <button class="btn sm ghost" data-back-progress style="align-self:flex-start">${icon("back")} Back</button>
         <div class="card">
           <div class="row" style="align-items:center;margin-bottom:4px"><h2 style="margin:0">${esc(ex.name)}</h2></div>
-          ${photoHTML}
           <div class="small muted" style="margin-bottom:10px">${esc(ex.muscleGroups.join(", "))}${metric !== "weight_reps" ? ` · ${metricLabel(metric)}` : ""}</div>
           ${deletedNote}
           ${strengthHTML}
@@ -1838,13 +1743,12 @@
 
         <div class="card">
           <h2>Exercise library</h2>
-          <div class="small muted" style="margin-bottom:8px">Your own library. Each exercise has muscle groups, optional variations (attachments, grips, one/two-handed) and an optional photo. Variations track their own last-time and best numbers.</div>
+          <div class="small muted" style="margin-bottom:8px">Your own library. Each exercise has muscle groups, optional variations (attachments, grips, one/two-handed). Variations track their own last-time and best numbers.</div>
           ${state.exercises.length === 0 ? `<div class="empty">No exercises yet. Add your first below.</div>` : `
           <div style="max-height:320px;overflow:auto;margin-bottom:12px">
             ${state.exercises.map((ex) => `
               <div class="row">
                 <div style="display:flex;align-items:center;gap:10px">
-                  ${photoThumb(ex.id, 38)}
                   <div><div>${esc(ex.name)}</div><div class="small muted">${esc(ex.muscleGroups.join(", "))}${ex.variations && ex.variations.length ? ` · ${esc(ex.variations.join(" / "))}` : ""}${(ex.metric || DEFAULT_METRIC) !== "weight_reps" ? ` · ${metricLabel(ex.metric)}` : ""}</div></div>
                 </div>
                 <div class="btn-row" style="flex-wrap:nowrap;flex-shrink:0">
@@ -1860,7 +1764,7 @@
 
         <div class="card">
           <h2>Data</h2>
-          <div class="small muted" style="margin-bottom:10px">Everything (sessions, lifts, body weight and exercise photos) is stored only on this device. Export a backup regularly, or use export/import to move data to another phone - and later, to a shared setup if friends join in.</div>
+          <div class="small muted" style="margin-bottom:10px">Everything (sessions, lifts, body weight and muscle groups) is stored only on this device. Export a backup regularly, or use export/import to move data to another phone - and later, to a shared setup if friends join in.</div>
           ${storageReadoutHTML()}
           <div class="btn-row">
             <button class="btn" id="export-data">Export backup (.json)</button>
@@ -1880,8 +1784,6 @@
 
   function customExerciseForm() {
     const editing = editingExerciseId !== null;
-    const existingPhoto = editing && !pendingPhotoUrl ? state.photoUrls[editingExerciseId] : null;
-    const previewUrl = pendingPhotoUrl || existingPhoto;
     return `
       <div class="card" style="margin-top:10px">
         <h2>${editing ? "Edit exercise" : "New exercise"}${trainFormOpen ? ` <span class="link" data-close-add>Close</span>` : ""}</h2>
@@ -1911,14 +1813,6 @@
           <div class="row" style="gap:6px">
             <input type="text" id="new-variation-input" placeholder="e.g. Straight bar, Rope, One-handed" maxlength="30" />
             <button class="btn sm" id="add-variation-btn">Add</button>
-          </div>
-        </div>
-        <div class="field">
-          <label>Photo (optional)</label>
-          <div class="row" style="justify-content:flex-start;gap:10px">
-            ${previewUrl ? `<img src="${previewUrl}" alt="" style="width:52px;height:52px;border-radius:10px;object-fit:cover" />` : ""}
-            <label class="btn sm ghost" style="margin:0">${icon("camera")} ${previewUrl ? "Change photo" : "Add photo"}<input type="file" accept="image/*" capture="environment" id="new-exercise-photo" style="display:none" /></label>
-            ${existingPhoto ? `<button class="btn sm danger" data-del-photo="${editingExerciseId}">Remove</button>` : ""}
           </div>
         </div>
         <button class="btn primary block" id="save-new-exercise">${editing ? "Save changes" : "Add exercise"}</button>
@@ -1969,8 +1863,6 @@
   let formNameValue = "";           // preserved across form re-renders
   let formVariations = [];          // variations list being built in the form
   let formMetric = DEFAULT_METRIC;  // metric type being built in the form
-  let pendingPhotoFile = null;      // photo picked in the form, saved on submit
-  let pendingPhotoUrl = null;       // object URL for previewing pendingPhotoFile
 
   function resetExerciseForm() {
     selectedMuscles = [];
@@ -1978,8 +1870,6 @@
     formNameValue = "";
     formMetric = DEFAULT_METRIC;
     editingExerciseId = null;
-    pendingPhotoFile = null;
-    if (pendingPhotoUrl) { URL.revokeObjectURL(pendingPhotoUrl); pendingPhotoUrl = null; }
   }
 
   // Inputs live inside the re-rendered form, so capture the name before any
@@ -2020,9 +1910,6 @@
   async function handleClick(e) {
     const t = e.target;
     captureFormName(); // any click may re-render; never lose what's typed in the exercise form
-
-    const photoView = t.closest("[data-photo-view]");
-    if (photoView) { openLightbox(photoView.dataset.photoView); return; }
 
     const navBtn = t.closest("[data-nav]");
     if (navBtn) { navTo(navBtn.dataset.nav); return; }
@@ -2305,14 +2192,7 @@
       } else {
         exerciseId = await Repo.addExercise(name, selectedMuscles.slice(), formVariations.slice(), formMetric);
       }
-      if (pendingPhotoFile) {
-        try {
-          const blob = await compressImage(pendingPhotoFile);
-          await Repo.setPhoto(exerciseId, blob);
-        } catch (err) { toast("Couldn't process that photo"); }
-      }
       state.exercises = await Repo.listExercises();
-      await refreshPhotoUrls();
       const wasEditing = editingExerciseId !== null;
       const fromTrain = trainFormOpen;
       trainFormOpen = false;
@@ -2339,18 +2219,10 @@
     if (delEx) {
       if (confirm("Delete this exercise? Past sessions keep their logged history.")) {
         if (editingExerciseId === delEx.dataset.delExercise) { customExerciseOpen = false; resetExerciseForm(); }
-        await Repo.deleteExercise(delEx.dataset.delExercise); // removes its photo too
+        await Repo.deleteExercise(delEx.dataset.delExercise);
         state.exercises = await Repo.listExercises();
-        await refreshPhotoUrls();
         render();
       }
-      return;
-    }
-    const delPhoto = t.closest("[data-del-photo]");
-    if (delPhoto) {
-      await Repo.deletePhoto(delPhoto.dataset.delPhoto);
-      await refreshPhotoUrls();
-      render();
       return;
     }
 
@@ -2418,33 +2290,10 @@
         if (r.bodyweight) parts.push(plural(r.bodyweight, "weigh-in"));
         if (r.muscleGroups) parts.push(plural(r.muscleGroups, "muscle group"));
         if (r.updatedGroups) parts.push(plural(r.updatedGroups, "muscle group") + " updated");
-        if (r.photos) parts.push(plural(r.photos, "photo"));
         if (r.settings) parts.push("settings");
         toast(parts.length ? "Imported " + parts.join(", ") : "Nothing new in that backup");
       } catch (err) {
         toast(err && /not a We Go Gym backup/.test(err.message) ? "Import failed: not a We Go Gym backup" : "Import failed: invalid file");
-      }
-      return;
-    }
-    if (t.id === "new-exercise-photo" && t.files[0]) {
-      captureFormName();
-      pendingPhotoFile = t.files[0];
-      if (pendingPhotoUrl) URL.revokeObjectURL(pendingPhotoUrl);
-      pendingPhotoUrl = URL.createObjectURL(pendingPhotoFile);
-      renderExerciseForm();
-      return;
-    }
-    const photoInput = t.closest("[data-photo-exercise]");
-    if (photoInput && t.files[0]) {
-      toast("Saving photo…");
-      try {
-        const blob = await compressImage(t.files[0]);
-        await Repo.setPhoto(photoInput.dataset.photoExercise, blob);
-        await refreshPhotoUrls();
-        render();
-        toast("Photo saved");
-      } catch (err) {
-        toast("Couldn't process that photo");
       }
       return;
     }

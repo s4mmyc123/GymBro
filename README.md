@@ -1,18 +1,17 @@
 # We Go Gym
 
-A simple, local-first gym tracker: log sessions and lifts, see which muscle groups are next in your rotation, track your body weight, and attach a photo to each exercise. No accounts, no cloud, no build step: just files you open in a browser.
+A simple, local-first gym tracker: log sessions and lifts, see which muscle groups are next in your rotation, and track your body weight. No accounts, no cloud, no build step: just files you open in a browser.
 
 ## What it does
 
 - **Home**: today's top 3 muscle groups to train next, a one-tap Start (or Resume) Workout shortcut, and a quick body weight log: all without leaving the screen.
 - **Train**: start a session, add exercises, log sets (weight × reps). Matches or beats to your best are flagged live. Bests and PRs are tracked per exercise *and* variation, so a rope pushdown and a straight-bar pushdown each keep their own record.
 - **Rotation**: every muscle group's "days since last trained" is ranked on Home and Progress, so you always know what's next.
-- **Progress**: a one-stop trends screen: Strength Index, muscle rotation, personal records, and per-exercise trend lines (estimated 1RM and session volume), with your saved exercise photo shown alongside.
+- **Progress**: a one-stop trends screen: Strength Index, muscle rotation, personal records, and per-exercise trend lines (estimated 1RM and session volume).
 - **Strength Index**: a single "are you stronger than when you started tracking" number (100 = your early baseline, rises as your lifts improve), plus a per-muscle-group breakdown so you can see which muscle groups are progressing fastest. See "How the Strength Index works" below for the reasoning.
 - **Weight**: its own tab with a stock-app-style trend chart: filterable by 1W/2W/1M/3M/6M/1Y/All (defaults to 2W, 1W is the shortest window), plus quick logging (one entry per day; logging again updates it) and a full history list.
 - **Muscle groups**: Chest, Back, Shoulders, Biceps, Triceps, Legs (a general lower-body category), Quads, Abs, and Cardio. Compound leg lifts (squats, deadlifts, lunges, etc.) are tagged both "Legs" and "Quads" where relevant, so you can track either the broad or the specific view.
 - **Cardio**: tracked as its own rotation category with a starter set of exercises (Running, Cycling, Rowing Machine, Jump Rope, Elliptical, Stair Climber) logged the same way as lifts: it's excluded from the Strength Index since 1RM doesn't apply to it.
-- **Photos**: attach a photo to any exercise (camera or library) so you can spot it at a glance, and tap any thumbnail to see it full-screen. Photos are compressed to ~1200px before saving, so a full library of them only takes a few tens of MB.
 - **Settings**: manage your exercise library and muscle groups, and export/import a full JSON backup.
 
 Everything is stored locally on your device in IndexedDB: nothing leaves your phone.
