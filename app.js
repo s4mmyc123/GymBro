@@ -118,7 +118,7 @@
   // =======================================================================
   // DATA LAYER  (the only code that talks to IndexedDB)
   //
-  // One database, six tables. Every record is a plain object. The KEY column
+  // One database, five tables. Every record is a plain object. The KEY column
   // is the field IndexedDB uses to find a record; saving a record with the
   // same key replaces it.
   //
@@ -435,8 +435,8 @@
       // Everything is checked and decoded first, then written in a single
       // transaction, so a bad file either imports completely or not at all.
       async importAll(data) {
-        // Step 1: is this a backup at all? (older files may also carry a
-        // "protein" section, which is simply ignored)
+        // Step 1: is this a backup at all? (older files may also carry
+        // "protein" or "photos" sections, which are simply ignored)
         if (!data || typeof data !== "object" || Array.isArray(data) || !TABLE_NAMES.some((k) => Array.isArray(data[k]))) {
           throw new Error("not a We Go Gym backup");
         }
@@ -476,8 +476,7 @@
           }
         }
 
-        // Step 4: one transaction for everything. (Backups from before v4 may
-        // carry a "photos" section; it is ignored.)
+        // Step 4: one transaction for everything
         await writeMany({ exercises, sessions, bodyweight, muscleGroups, settings });
         return {
           exercises: exercises.length, sessions: sessions.length, bodyweight: bodyweight.length,
@@ -1272,9 +1271,7 @@
       ${mg ? `<div class="small muted" style="margin:10px 2px 6px">${esc(mg)}</div>` : ""}
       ${grouped[mg].map((ex) => `
         <div class="pick-row" data-pick-exercise="${ex.id}">
-          <span style="display:flex;align-items:center;gap:10px">
-            <span>${esc(ex.name)}${ex.variations && ex.variations.length ? `<div class="small muted">${esc(ex.variations.join(" · "))}</div>` : ""}${(ex.metric || DEFAULT_METRIC) !== "weight_reps" ? `<div class="small muted">${metricLabel(ex.metric)}</div>` : ""}</span>
-          </span>
+          <span>${esc(ex.name)}${ex.variations && ex.variations.length ? `<div class="small muted">${esc(ex.variations.join(" · "))}</div>` : ""}${(ex.metric || DEFAULT_METRIC) !== "weight_reps" ? `<div class="small muted">${metricLabel(ex.metric)}</div>` : ""}</span>
           <span style="display:flex;align-items:center;gap:8px"><span class="small muted">${esc(ex.muscleGroups.join(", "))}</span><span class="chev">›</span></span>
         </div>
       `).join("")}
@@ -1345,7 +1342,7 @@
           ${prs.length === 0 ? `<div class="empty">No PRs yet. Log a session to start tracking.</div>` :
             prs.map((pr) => `
               <div class="row list-tap" data-view-exercise="${pr.exerciseId}">
-                <span style="display:flex;align-items:center;gap:8px"><span>${esc(pr.exerciseName)}${pr.variation ? ` <span class="variation-tag">${esc(pr.variation)}</span>` : ""}<div class="small muted">${fmtDate(pr.date)}</div></span></span>
+                <span>${esc(pr.exerciseName)}${pr.variation ? ` <span class="variation-tag">${esc(pr.variation)}</span>` : ""}<div class="small muted">${fmtDate(pr.date)}</div></span>
                 ${bestPillHTML(pr)}
               </div>
             `).join("")}
@@ -1356,7 +1353,7 @@
           ${used.length === 0 ? `<div class="empty">Log a session to start tracking lifts.</div>` :
             used.sort((a, b) => a.name.localeCompare(b.name)).map((ex) => `
               <div class="row list-tap" data-view-exercise="${ex.id}">
-                <span style="display:flex;align-items:center;gap:8px">${esc(ex.name)}</span>
+                <span>${esc(ex.name)}</span>
                 ${bestPillHTML(best[ex.id])}
               </div>
             `).join("")}
@@ -1748,9 +1745,7 @@
           <div style="max-height:320px;overflow:auto;margin-bottom:12px">
             ${state.exercises.map((ex) => `
               <div class="row">
-                <div style="display:flex;align-items:center;gap:10px">
-                  <div><div>${esc(ex.name)}</div><div class="small muted">${esc(ex.muscleGroups.join(", "))}${ex.variations && ex.variations.length ? ` · ${esc(ex.variations.join(" / "))}` : ""}${(ex.metric || DEFAULT_METRIC) !== "weight_reps" ? ` · ${metricLabel(ex.metric)}` : ""}</div></div>
-                </div>
+                <div><div>${esc(ex.name)}</div><div class="small muted">${esc(ex.muscleGroups.join(", "))}${ex.variations && ex.variations.length ? ` · ${esc(ex.variations.join(" / "))}` : ""}${(ex.metric || DEFAULT_METRIC) !== "weight_reps" ? ` · ${metricLabel(ex.metric)}` : ""}</div></div>
                 <div class="btn-row" style="flex-wrap:nowrap;flex-shrink:0">
                   <button class="btn sm ghost" data-edit-exercise="${ex.id}">Edit</button>
                   <button class="btn sm danger" data-del-exercise="${ex.id}">Delete</button>

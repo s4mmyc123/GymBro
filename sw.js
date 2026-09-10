@@ -32,7 +32,7 @@ self.addEventListener("activate", (event) => {
 //
 // Only successful http(s) GETs are cached: caching a 404 or a server error
 // would replay it forever offline, and cache.put() rejects outright for
-// non-http schemes (the backup import fetches data: URLs through here).
+// non-http schemes (browser extensions and data: URLs).
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET" || !req.url.startsWith("http")) return;

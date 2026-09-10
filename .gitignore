@@ -21,7 +21,7 @@ node_modules/
 # Claude Code session config (local preview launcher, not part of the app)
 .claude/
 
-# Personal data: backups exported from the app and any photos/exports dropped in the folder
+# Personal data: backups exported from the app or other exports dropped in the folder
 we-go-gym-backup-*.json
 *.backup.json
 exports/
