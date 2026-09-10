@@ -497,3 +497,27 @@ custom-fit-backup-<date>.json. Old backups still import; the check is on
 the file's contents, not its name. Installed phones keep showing the old
 name under the icon until the app is removed from the home screen and
 added again, the same as the icon.
+
+## 26. Muscle Rotation tab with a body map  (10 Sep 2026)
+
+A new tab between Train and Progress. It shows a front and a back figure
+with every muscle region coloured by the same rule as the rotation list:
+green recently trained, orange due soon, red overdue or never, grey not
+tracked. Under the figures a line names what to train next (the most
+overdue group) with its days-ago pill and a Log link; tap any region to see
+which of your groups cover it, or tap a row in the list below to highlight
+that group on the map. Home keeps its rotation list and its link now opens
+the new tab; the duplicate rotation card on Progress was removed.
+
+Muscle groups are now picked from a catalog rather than typed: 35 entries
+from broad (Legs, Back, Shoulders, Arms, Core) to specific (Anterior,
+Lateral and Posterior deltoid, Rotator cuff, Hip flexors, Gastroc, Soleus,
+Shins), with everyday names and an anatomical sub-label where it helps.
+Common ones show first; "Show all muscles" reveals the rest, and search
+finds any of them by name or nickname. Your existing groups were matched to
+the catalog by name automatically. A group the catalog cannot place stays
+in the list with a "Link" action to point it at a muscle. When a broad and a
+specific group both cover a region, the specific one decides the colour.
+
+Two UI designers scoped the feature independently and a strength coach
+reviewed both catalogs and every region's placement before it was built.

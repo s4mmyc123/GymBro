@@ -317,6 +317,46 @@ label {
   gap: 10px;
 }
 .rotation-item > .small { overflow-wrap: break-word; }
+
+/* Body map (Rotation tab). Regions sit on a flat silhouette; their stroke is
+   the card colour so it reads as a gap between pieces, not as a line. */
+.bm-figures { display: flex; justify-content: space-evenly; align-items: flex-start; gap: 12px; }
+.bm-figure { flex: 0 1 140px; text-align: center; min-width: 0; }
+.bodymap { width: 100%; height: auto; display: block; }
+.bm-figure .cap { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+.bm-body { fill: var(--surface-2); }
+.bm-region {
+  fill: var(--surface-2);
+  stroke: var(--surface);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  cursor: pointer;
+  outline: none;
+  transition: fill 0.25s ease, opacity 0.25s ease, transform 0.1s ease;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.bm-region.good { fill: var(--good); }
+.bm-region.warn { fill: var(--warn); }
+.bm-region.bad  { fill: var(--bad); }
+.bm-region.sel  { stroke: var(--text); stroke-width: 1.75; }
+.bm-region:active { transform: scale(0.94); }
+.bm-region:focus-visible { stroke: var(--accent); stroke-width: 2; }
+.bm-region.pulse { animation: bmPulse 1.6s ease-in-out 3; }
+@keyframes bmPulse { 50% { opacity: 0.5; } }
+.map-strip { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); min-height: 44px; }
+.bm-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
+.bm-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--surface-2); border: 1px solid var(--border); display: inline-block; }
+.bm-dot.good { background: var(--good); border-color: var(--good); }
+.bm-dot.warn { background: var(--warn); border-color: var(--warn); }
+.bm-dot.bad  { background: var(--bad); border-color: var(--bad); }
+.pick-row.added { opacity: 0.45; cursor: default; }
+.pick-row.added:active { transform: none; border-color: var(--border); }
+@media (prefers-reduced-motion: reduce) {
+  .bm-region { transition: none; }
+  .bm-region:active { transform: none; }
+  .bm-region.pulse { animation: none; }
+}
 .rotation-item .bar-track {
   flex: 1;
   height: 6px;

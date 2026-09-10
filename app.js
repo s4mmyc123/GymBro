@@ -27,12 +27,125 @@
     "#2dd4bf", "#facc15", "#c084fc", "#fb923c", "#34d399"
   ];
   const DEFAULT_MUSCLE_GROUPS = [
-    { name: "Chest", color: "#f97316" }, { name: "Back", color: "#38bdf8" },
-    { name: "Shoulders", color: "#a78bfa" }, { name: "Biceps", color: "#f472b6" },
-    { name: "Triceps", color: "#fb7185" }, { name: "Legs", color: "#60a5fa" },
-    { name: "Quads", color: "#4ade80" }, { name: "Abs", color: "#fbbf24" },
-    { name: "Cardio", color: "#ef4444" }
+    { name: "Chest", color: "#f97316", catalog: "chest" }, { name: "Back", color: "#38bdf8", catalog: "back" },
+    { name: "Shoulders", color: "#a78bfa", catalog: "shoulders" }, { name: "Biceps", color: "#f472b6", catalog: "biceps" },
+    { name: "Triceps", color: "#fb7185", catalog: "triceps" }, { name: "Legs", color: "#60a5fa", catalog: "legs" },
+    { name: "Quads", color: "#4ade80", catalog: "quads" }, { name: "Abs", color: "#fbbf24", catalog: "abs" },
+    { name: "Cardio", color: "#ef4444", catalog: "cardio" }
   ];
+
+  // -----------------------------------------------------------------------
+  // Muscle catalog: everything a muscle group can be. A group's `catalog`
+  // field is one of these ids; `regions` are the body-map areas it paints
+  // (see BODY_REGIONS). Names are what a lifter says on the gym floor; `sub`
+  // is the anatomical term, shown small in the picker only where the
+  // everyday name is ambiguous. The three deltoid heads keep proper names.
+  // `tier` "common" shows by default in the picker; "more" sits behind
+  // "Show all". `aliases` let older free-text names find their entry.
+  // -----------------------------------------------------------------------
+  const MUSCLE_CATALOG = [
+    // shoulders
+    { id: "shoulders",    name: "Shoulders",          sub: "Deltoids",                          area: "Shoulders", tier: "common", regions: ["delt-ant", "delt-lat", "delt-post"], aliases: ["shoulder", "delts", "deltoids"] },
+    { id: "delt-ant",     name: "Anterior deltoid",   sub: "Front delt",                        area: "Shoulders", tier: "more",   regions: ["delt-ant"], aliases: ["front delt", "front delts", "anterior delt"] },
+    { id: "delt-lat",     name: "Lateral deltoid",    sub: "Side delt",                         area: "Shoulders", tier: "more",   regions: ["delt-lat"], aliases: ["side delt", "side delts", "lateral delt", "medial deltoid", "medial delt"] },
+    { id: "delt-post",    name: "Posterior deltoid",  sub: "Rear delt",                         area: "Shoulders", tier: "more",   regions: ["delt-post"], aliases: ["rear delt", "rear delts", "posterior delt"] },
+    { id: "rotator-cuff", name: "Rotator cuff",       sub: "Infraspinatus, teres minor, supraspinatus, subscapularis", area: "Shoulders", tier: "more", regions: ["rotator-cuff"], aliases: ["cuff", "infraspinatus", "external rotators"] },
+    // chest
+    { id: "chest",        name: "Chest",              sub: "",                                  area: "Chest",     tier: "common", regions: ["pecs"], aliases: ["pecs", "pec", "pectorals", "pectoralis major", "upper chest", "lower chest"] },
+    // back
+    { id: "back",         name: "Back",               sub: "",                                  area: "Back",      tier: "common", regions: ["traps-upper", "rhomboids", "traps-lower", "lats", "erectors"], aliases: ["whole back", "back muscles"] },
+    { id: "lats",         name: "Lats",               sub: "",                                  area: "Back",      tier: "common", regions: ["lats"], aliases: ["lat", "latissimus", "latissimus dorsi"] },
+    { id: "traps-upper",  name: "Upper traps",        sub: "Upper trapezius",                   area: "Back",      tier: "common", regions: ["traps-upper"], aliases: ["traps", "trap", "trapezius", "upper trapezius"] },
+    { id: "lower-back",   name: "Lower back",         sub: "Erector spinae",                    area: "Back",      tier: "common", regions: ["erectors"], aliases: ["low back", "erectors", "erector spinae", "spinal erectors"] },
+    { id: "upper-back",   name: "Upper back",         sub: "Traps and rhomboids",               area: "Back",      tier: "more",   regions: ["traps-upper", "rhomboids", "traps-lower"], aliases: ["mid back", "middle back"] },
+    { id: "traps-lower",  name: "Lower traps",        sub: "Lower trapezius, middle fibres",    area: "Back",      tier: "more",   regions: ["traps-lower"], aliases: ["lower trapezius", "mid traps", "middle trapezius"] },
+    { id: "rhomboids",    name: "Rhomboids",          sub: "With middle trapezius",             area: "Back",      tier: "more",   regions: ["rhomboids"], aliases: ["rhomboid"] },
+    // arms
+    { id: "arms",         name: "Arms",               sub: "",                                  area: "Arms",      tier: "common", regions: ["biceps", "triceps", "forearm-flex", "forearm-ext"], aliases: ["arm"] },
+    { id: "biceps",       name: "Biceps",             sub: "",                                  area: "Arms",      tier: "common", regions: ["biceps"], aliases: ["bicep", "biceps brachii", "brachialis"] },
+    { id: "triceps",      name: "Triceps",            sub: "",                                  area: "Arms",      tier: "common", regions: ["triceps"], aliases: ["tricep", "triceps brachii"] },
+    { id: "forearms",     name: "Forearms",           sub: "",                                  area: "Arms",      tier: "common", regions: ["forearm-flex", "forearm-ext"], aliases: ["forearm", "grip"] },
+    { id: "forearm-flex", name: "Forearm flexors",    sub: "Inner forearm, grip",               area: "Arms",      tier: "more",   regions: ["forearm-flex"], aliases: ["wrist flexors", "flexors"] },
+    { id: "forearm-ext",  name: "Forearm extensors",  sub: "Outer forearm",                     area: "Arms",      tier: "more",   regions: ["forearm-ext"], aliases: ["wrist extensors", "extensors", "brachioradialis"] },
+    // core
+    { id: "core",         name: "Core",               sub: "Abs and obliques",                  area: "Core",      tier: "common", regions: ["abs", "obliques"], aliases: ["trunk", "midsection", "deep core"] },
+    { id: "abs",          name: "Abs",                sub: "Rectus abdominis",                  area: "Core",      tier: "common", regions: ["abs"], aliases: ["abdominals", "abdominal", "stomach", "six pack", "rectus abdominis"] },
+    { id: "obliques",     name: "Obliques",           sub: "",                                  area: "Core",      tier: "common", regions: ["obliques"], aliases: ["oblique", "side abs"] },
+    { id: "hip-flexors",  name: "Hip flexors",        sub: "Iliopsoas, rectus femoris",         area: "Core",      tier: "more",   regions: ["hip-flexors"], aliases: ["hip flexor", "iliopsoas", "psoas"] },
+    // legs
+    { id: "legs",         name: "Legs",               sub: "",                                  area: "Legs",      tier: "common", regions: ["quads", "adductors", "hip-flexors", "hamstrings", "glute-max", "glute-med", "gastroc", "soleus", "tibialis"], aliases: ["leg", "lower body"] },
+    { id: "quads",        name: "Quads",              sub: "",                                  area: "Legs",      tier: "common", regions: ["quads"], aliases: ["quad", "quadriceps", "quadricep"] },
+    { id: "hamstrings",   name: "Hamstrings",         sub: "",                                  area: "Legs",      tier: "common", regions: ["hamstrings"], aliases: ["hamstring", "hams", "hammies"] },
+    { id: "glutes",       name: "Glutes",             sub: "Gluteus maximus and medius",        area: "Legs",      tier: "common", regions: ["glute-max", "glute-med"], aliases: ["glute", "gluteals", "gluteus maximus", "glute max", "butt"] },
+    { id: "calves",       name: "Calves",             sub: "Gastrocnemius and soleus",          area: "Legs",      tier: "common", regions: ["gastroc", "soleus"], aliases: ["calf"] },
+    { id: "glute-med",    name: "Hip abductors",      sub: "Gluteus medius, TFL",               area: "Legs",      tier: "more",   regions: ["glute-med"], aliases: ["abductors", "abductor", "glute med", "gluteus medius", "outer thigh", "tfl"] },
+    { id: "adductors",    name: "Adductors",          sub: "Inner thigh",                       area: "Legs",      tier: "more",   regions: ["adductors"], aliases: ["adductor", "inner thigh", "groin"] },
+    { id: "gastroc",      name: "Gastroc",            sub: "Gastrocnemius, upper calf",         area: "Legs",      tier: "more",   regions: ["gastroc"], aliases: ["gastrocnemius", "upper calf"] },
+    { id: "soleus",       name: "Soleus",             sub: "Lower calf",                        area: "Legs",      tier: "more",   regions: ["soleus"], aliases: ["lower calf"] },
+    { id: "tibialis",     name: "Shins",              sub: "Tibialis anterior",                 area: "Legs",      tier: "more",   regions: ["tibialis"], aliases: ["shin", "tib", "tibialis", "tibialis anterior", "tib raises"] },
+    // other
+    { id: "neck",         name: "Neck",               sub: "",                                  area: "Other",     tier: "more",   regions: ["neck"], aliases: ["sternocleidomastoid", "cervical"] },
+    { id: "cardio",       name: "Cardio",             sub: "No map region",                     area: "Other",     tier: "common", regions: [], aliases: ["conditioning", "cardiovascular", "running", "cycling"] }
+  ];
+  const CATALOG_BY_ID = Object.fromEntries(MUSCLE_CATALOG.map((c) => [c.id, c]));
+
+  // Older groups were free text: find their catalog entry by name or alias.
+  function catalogIdForName(name) {
+    const n = String(name || "").trim().toLowerCase();
+    if (!n) return null;
+    const hit = MUSCLE_CATALOG.find((c) => c.id === n || c.name.toLowerCase() === n || c.aliases.includes(n));
+    return hit ? hit.id : null;
+  }
+
+  // -----------------------------------------------------------------------
+  // Body map figure. One silhouette serves front and back; only the region
+  // layer differs. Shapes are authored for the figure's right side (x > 70)
+  // and mirrored in code, so a region id paints both limbs. Coordinates are
+  // in a 140 x 260 box, one unit per screen pixel at the size it is shown.
+  // -----------------------------------------------------------------------
+  const BODY_SILHOUETTE =
+    "M77,34 V44 Q92,44 110,50 Q121,54 123,68 V106 L119,144 L124,152 L121,168 H109 L104,150 V144 L105,106 L98,74 " +
+    "L93,108 L99,128 L98,140 L92,190 V214 L86,242 L90,256 H72 L74,242 L75,214 L74,190 L72,150 L70,142 " +
+    "L68,150 L66,190 L65,214 L66,242 L68,256 H50 L54,242 L48,214 V190 L42,140 L41,128 L47,108 L42,74 " +
+    "L35,106 L36,144 V150 L31,168 H19 L16,152 L21,144 L17,106 V68 Q19,54 30,50 Q48,44 63,44 V34 Z";
+
+  // kind "rect" = [x, y, w, h] drawn once on the midline; "poly" = points,
+  // drawn once and, when `both` is true, again mirrored for the other side.
+  const BODY_REGIONS = [
+    // front
+    { id: "neck",         side: "front", kind: "rect", d: [64, 35, 12, 9],  both: false, label: "Neck" },
+    { id: "traps-upper",  side: "front", kind: "poly", d: "77,44 92,45 101,49 98,52 77,51",              both: true,  label: "Upper traps" },
+    { id: "delt-ant",     side: "front", kind: "poly", d: "100,52 110,50 112,54 112,74 104,76 99,70",    both: true,  label: "Anterior deltoid" },
+    { id: "delt-lat",     side: "front", kind: "poly", d: "112,54 120,56 122,70 120,76 112,74",          both: true,  label: "Lateral deltoid" },
+    { id: "pecs",         side: "front", kind: "poly", d: "71,52 100,54 99,70 96,86 71,86",              both: true,  label: "Chest" },
+    { id: "abs",          side: "front", kind: "rect", d: [60, 89, 20, 44], both: false, label: "Abs" },
+    { id: "obliques",     side: "front", kind: "poly", d: "82,89 97,90 92,108 96,120 82,122",            both: true,  label: "Obliques" },
+    { id: "glute-med",    side: "front", kind: "poly", d: "84,124 97,124 97,138 88,140",                 both: true,  label: "Hip abductors" },
+    { id: "hip-flexors",  side: "front", kind: "poly", d: "71,135 84,135 88,141 82,143 72,145",          both: true,  label: "Hip flexors" },
+    { id: "biceps",       side: "front", kind: "poly", d: "104,78 119,78 121,106 106,106",               both: true,  label: "Biceps" },
+    { id: "forearm-flex", side: "front", kind: "poly", d: "106,110 121,110 117,142 105,142",             both: true,  label: "Forearm flexors" },
+    { id: "adductors",    side: "front", kind: "poly", d: "72,146 82,144 80,170 74,172",                 both: true,  label: "Adductors" },
+    { id: "quads",        side: "front", kind: "poly", d: "84,143 97,142 91,188 76,190 76,174 81,172",   both: true,  label: "Quads" },
+    { id: "tibialis",     side: "front", kind: "poly", d: "80,199 90,199 86,240 78,240",                 both: true,  label: "Shins" },
+    // back
+    { id: "neck",         side: "back",  kind: "rect", d: [64, 35, 12, 7],  both: false, label: "Neck" },
+    { id: "traps-upper",  side: "back",  kind: "poly", d: "64,43 76,43 106,50 96,62 70,72 44,62 34,50",  both: false, label: "Upper traps" },
+    { id: "delt-post",    side: "back",  kind: "poly", d: "106,51 112,54 112,74 104,76 99,68 98,63",     both: true,  label: "Posterior deltoid" },
+    { id: "delt-lat",     side: "back",  kind: "poly", d: "112,54 120,56 122,70 120,76 112,74",          both: true,  label: "Lateral deltoid" },
+    { id: "rotator-cuff", side: "back",  kind: "poly", d: "96,62 98,63 99,68 103,75 98,76 84,74 86,66",  both: true,  label: "Rotator cuff" },
+    { id: "rhomboids",    side: "back",  kind: "poly", d: "70,73 82,75 80,96 70,99 60,96 58,75",         both: false, label: "Rhomboids" },
+    { id: "lats",         side: "back",  kind: "poly", d: "84,74 98,76 92,110 94,128 81,128 82,98",      both: true,  label: "Lats" },
+    { id: "traps-lower",  side: "back",  kind: "poly", d: "60,99 80,99 70,112",                          both: false, label: "Lower traps" },
+    { id: "erectors",     side: "back",  kind: "rect", d: [62, 113, 16, 19], both: false, label: "Lower back" },
+    { id: "triceps",      side: "back",  kind: "poly", d: "104,78 119,78 121,106 106,106",               both: true,  label: "Triceps" },
+    { id: "forearm-ext",  side: "back",  kind: "poly", d: "106,110 121,110 117,142 105,142",             both: true,  label: "Forearm extensors" },
+    { id: "glute-med",    side: "back",  kind: "poly", d: "82,130 98,128 98,142 88,144",                 both: true,  label: "Hip abductors" },
+    { id: "glute-max",    side: "back",  kind: "poly", d: "73,134 82,132 88,146 97,144 95,156 74,156",   both: true,  label: "Glutes" },
+    { id: "hamstrings",   side: "back",  kind: "poly", d: "75,158 94,158 91,189 75,190",                 both: true,  label: "Hamstrings" },
+    { id: "gastroc",      side: "back",  kind: "poly", d: "76,199 91,199 89,222 76,222",                 both: true,  label: "Gastroc" },
+    { id: "soleus",       side: "back",  kind: "poly", d: "76,224 89,224 86,240 77,240",                 both: true,  label: "Soleus" }
+  ];
+  const REGION_LABEL = Object.fromEntries(BODY_REGIONS.map((r) => [r.id, r.label]));
   const DEFAULT_FREQUENCY = 2; // times per week
   const FREQUENCY_MAX = 14;    // times per week (matches the input's max attribute)
 
@@ -128,7 +241,7 @@
   //                               ENTRY = { exerciseId, exerciseName, muscleGroups, variation, metric, sets: [ SET, .. ] }
   //                               SET   = { weight, reps } or { reps } or { minutes } or { distance }
   //   bodyweight    date        { date, weight, loggedAt }
-  //   muscleGroups  id          { id, name, frequency, color }
+  //   muscleGroups  id          { id, name, frequency, color, catalog }   catalog = MUSCLE_CATALOG id (body map)
   //   settings      key         { key, value }   see the list of keys below
   //
   // Things worth knowing about the model:
@@ -318,11 +431,15 @@
     function tidyMuscleGroup(mg, index) {
       if (!mg || !isText(mg.id) || !isText(mg.name)) return null;
       const freq = Math.round(Number(mg.frequency));
-      return Object.assign({}, mg, {
+      const out = Object.assign({}, mg, {
         name: cleanTag(mg.name),
         frequency: Number.isFinite(freq) ? Math.min(FREQUENCY_MAX, Math.max(1, freq)) : DEFAULT_FREQUENCY,
         color: /^#[0-9a-f]{6}$/i.test(String(mg.color || "")) ? mg.color : MUSCLE_COLOR_PALETTE[index % MUSCLE_COLOR_PALETTE.length]
       });
+      // Body-map link: keep a valid catalog id, otherwise find one by name.
+      const catalog = CATALOG_BY_ID[mg.catalog] ? mg.catalog : catalogIdForName(out.name);
+      if (catalog) out.catalog = catalog; else delete out.catalog;
+      return out;
     }
 
     function tidyBodyweight(bw) {
@@ -347,6 +464,19 @@
       await runOnce("builtinsCleared", removeBuiltinExercises);
       await retagRemovedMuscleGroups();
       await runOnce("muscleGroupsSeeded", seedMuscleGroups);
+      await linkMuscleGroupsToCatalog();
+    }
+
+    // Groups created before the body map have no catalog id. Match them by
+    // name or alias and store the id, so exports carry it. Names are never
+    // rewritten: exercises and past sessions refer to groups by name. Runs
+    // every boot; it is cheap and does nothing once every group is linked.
+    async function linkMuscleGroupsToCatalog() {
+      for (const mg of await getAll("muscleGroups")) {
+        if (CATALOG_BY_ID[mg.catalog]) continue;
+        const catalog = catalogIdForName(mg.name);
+        if (catalog) await put("muscleGroups", Object.assign({}, mg, { catalog }));
+      }
     }
 
     // Older versions shipped a built-in exercise library; it was retired so
@@ -375,7 +505,7 @@
     async function seedMuscleGroups() {
       if ((await getAll("muscleGroups")).length > 0) return;
       for (const mg of DEFAULT_MUSCLE_GROUPS) {
-        await put("muscleGroups", { id: uid(), name: mg.name, frequency: DEFAULT_FREQUENCY, color: mg.color });
+        await put("muscleGroups", { id: uid(), name: mg.name, frequency: DEFAULT_FREQUENCY, color: mg.color, catalog: mg.catalog });
       }
     }
 
@@ -386,13 +516,15 @@
 
       // Muscle groups
       listMuscleGroups: () => list("muscleGroups", tidyMuscleGroup, byName),
-      addMuscleGroup: async (name, frequency) => {
+      addMuscleGroup: async (name, frequency, catalog) => {
         // First palette colour not already in use, so re-adding a deleted group
         // doesn't give two groups the same swatch. Past 14 groups, cycle.
         const existing = await getAll("muscleGroups");
         const used = new Set(existing.map((m) => m.color));
         const color = MUSCLE_COLOR_PALETTE.find((c) => !used.has(c)) || MUSCLE_COLOR_PALETTE[existing.length % MUSCLE_COLOR_PALETTE.length];
-        return put("muscleGroups", { id: uid(), name, frequency, color });
+        const record = { id: uid(), name, frequency, color };
+        if (catalog) record.catalog = catalog;
+        return put("muscleGroups", record);
       },
       updateMuscleGroup: (mg) => put("muscleGroups", mg),
       deleteMuscleGroup: (id) => del("muscleGroups", id),
@@ -468,8 +600,9 @@
           if (!current) {
             muscleGroups.push(m);
             byLowerName[key] = m;
-          } else if (current.frequency !== m.frequency || current.color !== m.color) {
+          } else if (current.frequency !== m.frequency || current.color !== m.color || (m.catalog && m.catalog !== current.catalog)) {
             const merged = Object.assign({}, current, { frequency: m.frequency, color: m.color });
+            if (m.catalog) merged.catalog = m.catalog;
             muscleGroups.push(merged);
             byLowerName[key] = merged;
             updatedGroups++;
@@ -617,6 +750,8 @@
       const daysSince = last[mg.name] ? daysAgo(last[mg.name]) : Infinity;
       const interval = 7 / (mg.frequency || 1);
       return {
+        id: mg.id,
+        catalog: mg.catalog || null,
         muscle: mg.name,
         frequency: mg.frequency || 1,
         lastDate: last[mg.name],
@@ -643,12 +778,16 @@
   // training urgency relative to each muscle's own target frequency - not
   // the muscle's identity - so green/orange/red always means
   // recently-done/upcoming/overdue.
-  function rotationItemHTML(r) {
+  // opts.tappable: rows on the Rotation tab select their regions on the map;
+  // opts.offMap: the group has no catalog entry, so say so under its name.
+  function rotationItemHTML(r, opts) {
+    opts = opts || {};
     const pct = r.overdueRatio === Infinity ? 100 : Math.min(100, Math.round((r.overdueRatio / 1.5) * 100));
     const status = rotationColor(r.overdueRatio);
+    const tap = opts.tappable ? ` data-map-pick="${r.id}" style="margin-bottom:10px;cursor:pointer"` : ` style="margin-bottom:10px"`;
     return `
-      <div class="rotation-item" style="margin-bottom:10px">
-        <span class="small" style="width:78px">${esc(r.muscle)}<div class="small muted" style="font-weight:400">${r.frequency}x/wk</div></span>
+      <div class="rotation-item"${tap}>
+        <span class="small" style="width:78px">${esc(r.muscle)}<div class="small muted" style="font-weight:400">${r.frequency}x/wk${opts.offMap ? " · not on map" : ""}</div></span>
         <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${ROTATION_STATUS_COLORS[status]}"></div></div>
         <span class="pill ${status}">${r.daysSince === Infinity ? "Never" : fmtDaysAgo(r.daysSince)}</span>
       </div>
@@ -917,6 +1056,7 @@
       chart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V9M12 19V5M20 19v-7"/></svg>',
       gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>',
       back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>',
+      body: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="4.5" r="2.5"/><path d="M8 9h8l1.5 6H14v7h-4v-7H6.5L8 9Z"/></svg>',
       scale: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M12 8.5v3.2l2.6 1.8"/></svg>'
     };
     return icons[name] || "";
@@ -934,7 +1074,7 @@
     { key: "all", label: "All", days: Infinity }
   ];
 
-  const routes = ["home", "train", "progress", "weight", "settings"];
+  const routes = ["home", "train", "rotation", "progress", "weight", "settings"];
   let state = {
     route: "home",
     exercises: [],
@@ -1049,6 +1189,8 @@
       pickingVariationFor = null;
       if (trainFormOpen) { trainFormOpen = false; resetExerciseForm(); }
     }
+    if (route !== "settings") closeMusclePicker();
+    if (route !== "rotation") mapSelection = null;
     state.route = route;
     state.progressDetail = null;
     render();
@@ -1107,7 +1249,7 @@
         </div>
 
         <div class="card">
-          <h2>Muscle rotation <span class="link" data-nav="progress">Muscle detail →</span></h2>
+          <h2>Muscle rotation <span class="link" data-nav="rotation">Body map →</span></h2>
           ${rotationListHTML(rotation)}
         </div>
 
@@ -1301,6 +1443,141 @@
     `;
   }
 
+
+  // -----------------------------------------------------------------------
+  // Rotation tab: the body map. Colour is the rotation score projected onto
+  // regions through each group's catalog entry. When two groups claim one
+  // region (Legs and Quads both paint the quads), the more specific group
+  // wins: the one with the fewest regions. Tie goes to the more overdue.
+  // -----------------------------------------------------------------------
+  let mapSelection = null; // null (default: train next) | { region } | { group: id }
+
+  function rotationWithCatalog(rotation) {
+    return rotation.map((r) => Object.assign({}, r, { entry: r.catalog ? CATALOG_BY_ID[r.catalog] : null }));
+  }
+
+  // region id -> the rotation item that paints it
+  function regionOwners(items) {
+    const owner = {};
+    const mapped = items.filter((it) => it.entry && it.entry.regions.length);
+    mapped.sort((a, b) => a.entry.regions.length - b.entry.regions.length || b.overdueRatio - a.overdueRatio);
+    for (const it of mapped) for (const reg of it.entry.regions) if (!owner[reg]) owner[reg] = it;
+    return owner;
+  }
+
+  function regionClaimants(items, regionId) {
+    return items
+      .filter((it) => it.entry && it.entry.regions.includes(regionId))
+      .sort((a, b) => a.entry.regions.length - b.entry.regions.length || b.overdueRatio - a.overdueRatio);
+  }
+
+  // The group the map should point at by default: the most overdue mapped one.
+  function trainNext(items) {
+    return items.find((it) => it.entry && it.entry.regions.length) || items[0] || null;
+  }
+
+  function selectedRegionSet(items) {
+    if (mapSelection && mapSelection.region) return new Set([mapSelection.region]);
+    const it = mapSelection && mapSelection.group
+      ? items.find((x) => x.id === mapSelection.group)
+      : trainNext(items);
+    return new Set(it && it.entry ? it.entry.regions : []);
+  }
+
+  const mirrorPoints = (pts) => pts.split(" ").map((p) => { const [x, y] = p.split(","); return (140 - Number(x)) + "," + y; }).join(" ");
+
+  function bodyMapSVG(side, owner, selected, pulse) {
+    const shapes = BODY_REGIONS.filter((r) => r.side === side).flatMap((r) => {
+      const it = owner[r.id];
+      const status = it ? rotationColor(it.overdueRatio) : "";
+      const cls = `bm-region${status ? " " + status : ""}${selected.has(r.id) ? " sel" : ""}${pulse.has(r.id) ? " pulse" : ""}`;
+      const label = it ? `${r.label}, ${it.daysSince === Infinity ? "never trained" : fmtDaysAgo(it.daysSince).toLowerCase()}` : `${r.label}, not tracked`;
+      const common = `class="${cls}" data-region="${r.id}" role="button" tabindex="0" aria-label="${esc(label)}"`;
+      if (r.kind === "rect") return [`<rect ${common} x="${r.d[0]}" y="${r.d[1]}" width="${r.d[2]}" height="${r.d[3]}" rx="5"/>`];
+      const one = `<polygon ${common} points="${r.d}"/>`;
+      return r.both ? [one, `<polygon ${common} points="${mirrorPoints(r.d)}"/>`] : [one];
+    }).join("");
+    return `<svg class="bodymap" viewBox="0 0 140 260" role="group" aria-label="${side === "front" ? "Front" : "Back"} of body">
+      <ellipse class="bm-body" cx="70" cy="19" rx="13" ry="15"/>
+      <path class="bm-body" d="${BODY_SILHOUETTE}"/>
+      ${shapes}
+    </svg>`;
+  }
+
+  // The line under the figures: what is selected, or what to train next.
+  function mapStripHTML(items) {
+    const pillFor = (it) => `<span class="pill ${rotationColor(it.overdueRatio)}">${it.daysSince === Infinity ? "Never" : fmtDaysAgo(it.daysSince)}</span>`;
+    if (items.length === 0) {
+      return `<div class="small muted">No muscle groups yet. <span class="link" data-nav="settings">Add some in Settings →</span></div>`;
+    }
+    if (mapSelection && mapSelection.region) {
+      const region = mapSelection.region;
+      const claimants = regionClaimants(items, region);
+      if (claimants.length === 0) {
+        const fine = MUSCLE_CATALOG.find((c) => c.regions.length === 1 && c.regions[0] === region) || MUSCLE_CATALOG.find((c) => c.regions.includes(region));
+        return `<div class="row" style="align-items:center">
+          <span><strong>${esc(REGION_LABEL[region])}</strong><div class="small muted">Not tracked</div></span>
+          ${fine ? `<span class="link" data-add-catalog-from-map="${fine.id}">Add ${esc(fine.name)} →</span>` : ""}
+        </div>`;
+      }
+      return `<div class="small muted" style="margin-bottom:4px">${esc(REGION_LABEL[region])}</div>
+        ${claimants.map((it) => `<div class="row" style="align-items:center;padding:4px 0"><span><strong>${esc(it.muscle)}</strong> <span class="small muted">${it.frequency}x/wk</span></span>${pillFor(it)}</div>`).join("")}
+        <div style="margin-top:6px"><span class="link" data-nav="train">Log a workout →</span></div>`;
+    }
+    const it = mapSelection && mapSelection.group ? items.find((x) => x.id === mapSelection.group) : trainNext(items);
+    if (!it) return "";
+    const status = rotationColor(it.overdueRatio);
+    const heading = mapSelection && mapSelection.group ? esc(it.muscle) : (status === "good" ? "All caught up" : "Train next");
+    return `<div class="small muted" style="text-transform:uppercase;letter-spacing:.04em;font-size:10.5px;margin-bottom:4px;${status === "good" && !(mapSelection && mapSelection.group) ? "color:var(--good)" : ""}">${heading}</div>
+      <div class="row" style="align-items:center">
+        <span><strong style="font-size:16px">${esc(it.muscle)}</strong> <span class="small muted">${it.frequency}x/wk${it.entry && it.entry.regions.length ? "" : " · not on map"}</span></span>
+        <span style="display:flex;align-items:center;gap:10px">${pillFor(it)}<span class="link" data-nav="train">Log →</span></span>
+      </div>`;
+  }
+
+  function viewRotation() {
+    const items = rotationWithCatalog(computeRotation(state.sessions));
+    const owner = regionOwners(items);
+    const selected = selectedRegionSet(items);
+    const next = trainNext(items);
+    const pulse = !mapSelection && next && next.entry && rotationColor(next.overdueRatio) === "bad" ? new Set(next.entry.regions) : new Set();
+    const legendDot = (cls, text) => `<span style="display:inline-flex;align-items:center;gap:5px"><span class="bm-dot ${cls}"></span>${text}</span>`;
+    return `
+      <div class="view">
+        <div class="card">
+          <h2>Body map</h2>
+          <div class="bm-figures">
+            <div class="bm-figure">${bodyMapSVG("front", owner, selected, pulse)}<div class="cap">Front</div></div>
+            <div class="bm-figure">${bodyMapSVG("back", owner, selected, pulse)}<div class="cap">Back</div></div>
+          </div>
+          <div id="map-strip" class="map-strip">${mapStripHTML(items)}</div>
+          <div class="bm-legend small muted">
+            ${legendDot("good", "Recent")}${legendDot("warn", "Due soon")}${legendDot("bad", "Overdue")}${legendDot("", "Not tracked")}
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>All muscle groups <span class="link" data-nav="settings">Settings →</span></h2>
+          ${items.length === 0 ? `<div class="empty">No muscle groups yet. Add some in Settings.</div>` :
+            items.map((it) => rotationItemHTML(it, { tappable: !!(it.entry && it.entry.regions.length), offMap: !it.entry })).join("")}
+        </div>
+      </div>
+    `;
+  }
+
+  // Taps on the map patch the page in place rather than re-rendering, so the
+  // cards don't replay their entrance animation on every tap.
+  function applyMapSelection() {
+    const items = rotationWithCatalog(computeRotation(state.sessions));
+    const selected = selectedRegionSet(items);
+    document.querySelectorAll(".bm-region").forEach((el) => {
+      el.classList.toggle("sel", selected.has(el.dataset.region));
+      el.classList.remove("pulse");
+    });
+    const strip = document.getElementById("map-strip");
+    if (strip) strip.innerHTML = mapStripHTML(items);
+  }
+
   function viewProgress() {
     if (state.progressDetail) return viewProgressDetail(state.progressDetail);
     const best = bestSetsByExercise(state.sessions);
@@ -1333,11 +1610,6 @@
         </div>
 
         <div class="card">
-          <h2>Muscle rotation</h2>
-          ${viewRotationFullInner()}
-        </div>
-
-        <div class="card">
           <h2>Personal records</h2>
           ${prs.length === 0 ? `<div class="empty">No PRs yet. Log a session to start tracking.</div>` :
             prs.map((pr) => `
@@ -1365,10 +1637,6 @@
   function rotationListHTML(rotation) {
     if (rotation.length === 0) return `<div class="empty">No muscle groups yet. Add some in Settings.</div>`;
     return rotation.map(rotationItemHTML).join("");
-  }
-
-  function viewRotationFullInner() {
-    return rotationListHTML(computeRotation(state.sessions));
   }
 
   // For an exercise that's been deleted from the library, rebuild enough of
@@ -1712,17 +1980,71 @@
       </div>`;
   }
 
+
+  // Muscle group picker (Settings): pick from the catalog instead of typing.
+  // In link mode an existing group with no catalog id gets one; its name and
+  // exercise tags are untouched.
+  let musclePickerOpen = false;
+  let musclePickerLinkId = null;
+  let musclePickerShowAll = false;
+  let musclePickerQuery = "";
+
+  function closeMusclePicker() {
+    musclePickerOpen = false; musclePickerLinkId = null; musclePickerShowAll = false; musclePickerQuery = "";
+  }
+
+  function musclePickerListHTML() {
+    const q = musclePickerQuery.trim().toLowerCase();
+    // Match at the start of a word, so "rear" finds "Rear delt" but not "Forearms"
+    const hit = (text) => (" " + text.toLowerCase()).includes(" " + q);
+    const added = new Set(state.muscleGroups.map((mg) => mg.catalog).filter(Boolean));
+    const linking = !!musclePickerLinkId;
+    const visible = MUSCLE_CATALOG.filter((c) => {
+      if (q) return hit(c.name) || hit(c.sub) || c.aliases.some(hit);
+      return musclePickerShowAll || c.tier === "common";
+    });
+    if (visible.length === 0) return `<div class="empty">No muscles match.</div>`;
+    const areas = [];
+    for (const c of visible) if (!areas.includes(c.area)) areas.push(c.area);
+    return areas.map((area) => `
+      <div class="small muted" style="margin:10px 2px 6px">${area}</div>
+      ${visible.filter((c) => c.area === area).map((c) => {
+        const isAdded = !linking && added.has(c.id);
+        return `<div class="pick-row${isAdded ? " added" : ""}"${isAdded ? "" : ` data-catalog-pick="${c.id}"`}>
+          <span>${esc(c.name)}${c.sub ? `<div class="small muted">${esc(c.sub)}</div>` : ""}</span>
+          ${isAdded ? `<span class="pill">Added</span>` : `<span class="chev">›</span>`}
+        </div>`;
+      }).join("")}
+    `).join("");
+  }
+
+  function musclePickerSheetHTML() {
+    if (!musclePickerOpen) return "";
+    const linkTarget = musclePickerLinkId ? state.muscleGroups.find((mg) => mg.id === musclePickerLinkId) : null;
+    return `
+      <div class="sheet-wrap">
+        <div class="sheet-backdrop" data-close-muscle-picker></div>
+        <div class="sheet">
+          <div class="sheet-title"><h2 style="margin:0">${linkTarget ? `Link "${esc(linkTarget.name)}" to the map` : "Add muscle group"}</h2><span class="link" data-close-muscle-picker>Close</span></div>
+          <div class="small muted" style="margin:6px 0 10px">${linkTarget ? "Pick the muscle this group stands for. Its name and exercises stay as they are." : "Tap one to add it at 2x/week. Change the frequency in the list afterwards."}</div>
+          <div class="field"><input type="text" id="muscle-search" placeholder="Search muscles" value="${esc(musclePickerQuery)}" /></div>
+          <div id="muscle-picker-list" class="sheet-scroll">${musclePickerListHTML()}</div>
+          ${musclePickerShowAll || musclePickerQuery ? "" : `<button class="btn ghost block" id="muscle-picker-show-all" style="margin-top:10px;flex-shrink:0">Show all muscles</button>`}
+        </div>
+      </div>`;
+  }
+
   function viewSettings() {
     return `
       <div class="view">
         <div class="card">
           <h2>Muscle groups</h2>
-          <div class="small muted" style="margin-bottom:8px">Pick which muscle groups you want to track and how many times per week you're aiming to train each. Rotation and the Strength Index are both built from this list.</div>
+          <div class="small muted" style="margin-bottom:8px">Pick which muscle groups you want to track and how many times per week you're aiming to train each. Rotation, the body map and the Strength Index are all built from this list.</div>
           ${state.muscleGroups.length === 0 ? `<div class="empty">No muscle groups yet. Add your first below.</div>` : `
           <div style="margin-bottom:12px">
             ${state.muscleGroups.map((mg) => `
               <div class="row" style="align-items:center">
-                <span style="display:flex;align-items:center;gap:8px"><span style="width:10px;height:10px;border-radius:50%;background:${mg.color};display:inline-block;flex-shrink:0"></span>${esc(mg.name)}</span>
+                <span style="display:flex;align-items:center;gap:8px"><span style="width:10px;height:10px;border-radius:50%;background:${mg.color};display:inline-block;flex-shrink:0"></span><span>${esc(mg.name)}${mg.catalog ? "" : `<div class="small muted">Not on map · <span class="link" data-link-muscle="${mg.id}">Link</span></div>`}</span></span>
                 <span style="display:flex;align-items:center;gap:8px">
                   <input type="number" inputmode="numeric" min="1" max="14" value="${mg.frequency}" data-muscle-freq="${mg.id}" style="width:56px" />
                   <span class="small muted">x/wk</span>
@@ -1731,11 +2053,7 @@
               </div>
             `).join("")}
           </div>`}
-          <div class="row" style="gap:6px">
-            <input type="text" id="new-muscle-name" placeholder="e.g. Forearms" maxlength="30" style="flex:1" />
-            <input type="number" inputmode="numeric" id="new-muscle-freq" placeholder="x/wk" value="2" min="1" max="14" style="width:64px" />
-            <button class="btn primary sm" id="add-muscle-btn">Add</button>
-          </div>
+          <button class="btn ghost block" id="open-muscle-picker">+ Add muscle group</button>
         </div>
 
         <div class="card">
@@ -1773,6 +2091,7 @@
           <h2>About</h2>
           <div class="small muted">Custom Fit v2.0 · local-only storage on this device (IndexedDB). Install to your home screen for the full-screen app feel. See the README for how.</div>
         </div>
+        ${musclePickerSheetHTML()}
       </div>
     `;
   }
@@ -1818,12 +2137,13 @@
   // -----------------------------------------------------------------------
   // Root render
   // -----------------------------------------------------------------------
-  const titles = { home: "Custom Fit", train: "Log Workout", progress: "Progress", weight: "Body Weight", settings: "Settings" };
+  const titles = { home: "Custom Fit", train: "Log Workout", rotation: "Muscle Rotation", progress: "Progress", weight: "Body Weight", settings: "Settings" };
 
   function render() {
     let body;
     if (state.route === "home") body = viewHome();
     else if (state.route === "train") body = viewTrain();
+    else if (state.route === "rotation") body = viewRotation();
     else if (state.route === "progress") body = viewProgress();
     else if (state.route === "weight") body = viewWeight();
     else body = viewSettings();
@@ -1837,6 +2157,7 @@
       <nav class="nav">
         <button class="${state.route === "home" ? "active" : ""}" data-nav="home">${icon("home")}Home</button>
         <button class="${state.route === "train" ? "active" : ""}" data-nav="train">${icon("train")}Train</button>
+        <button class="${state.route === "rotation" ? "active" : ""}" data-nav="rotation">${icon("body")}Rotation</button>
         <button class="${state.route === "progress" ? "active" : ""}" data-nav="progress">${icon("chart")}Progress</button>
         <button class="${state.route === "weight" ? "active" : ""}" data-nav="weight">${icon("scale")}Weight</button>
         <button class="${state.route === "settings" ? "active" : ""}" data-nav="settings">${icon("gear")}Settings</button>
@@ -2080,17 +2401,55 @@
     }
 
     // Settings: muscle groups
-    if (t.id === "add-muscle-btn") {
-      const nameInput = document.getElementById("new-muscle-name");
-      const freqInput = document.getElementById("new-muscle-freq");
-      const name = nameInput.value.trim();
-      const frequency = clampFrequency(freqInput.value);
-      if (!name) { toast("Enter a muscle group name"); return; }
-      if (state.muscleGroups.some((mg) => mg.name.toLowerCase() === name.toLowerCase())) { toast("Already in your list"); return; }
-      await Repo.addMuscleGroup(name, frequency);
+    // Settings: muscle group picker
+    if (t.id === "open-muscle-picker") { musclePickerOpen = true; musclePickerLinkId = null; render(); return; }
+    const linkBtn = t.closest("[data-link-muscle]");
+    if (linkBtn) { musclePickerOpen = true; musclePickerLinkId = linkBtn.dataset.linkMuscle; render(); return; }
+    if (t.closest("[data-close-muscle-picker]")) { closeMusclePicker(); render(); return; }
+    if (t.id === "muscle-picker-show-all") { musclePickerShowAll = true; render(); return; }
+    const catalogPick = t.closest("[data-catalog-pick]");
+    if (catalogPick) {
+      const entry = CATALOG_BY_ID[catalogPick.dataset.catalogPick];
+      if (!entry) return;
+      if (musclePickerLinkId) {
+        const mg = state.muscleGroups.find((m) => m.id === musclePickerLinkId);
+        if (mg) await Repo.updateMuscleGroup(Object.assign({}, mg, { catalog: entry.id }));
+        closeMusclePicker();
+        state.muscleGroups = await Repo.listMuscleGroups();
+        render();
+        toast(mg ? `${mg.name} linked to ${entry.name}` : "Linked");
+        return;
+      }
+      if (state.muscleGroups.some((mg) => mg.catalog === entry.id || mg.name.toLowerCase() === entry.name.toLowerCase())) { toast("Already in your list"); return; }
+      await Repo.addMuscleGroup(entry.name, DEFAULT_FREQUENCY, entry.id);
+      closeMusclePicker();
       state.muscleGroups = await Repo.listMuscleGroups();
       render();
-      toast("Muscle group added");
+      toast(`${entry.name} added · ${DEFAULT_FREQUENCY}x/wk`);
+      return;
+    }
+
+    // Rotation tab: body map taps patch in place (see applyMapSelection)
+    const region = t.closest("[data-region]");
+    if (region) {
+      const id = region.dataset.region;
+      mapSelection = mapSelection && mapSelection.region === id ? null : { region: id };
+      applyMapSelection();
+      return;
+    }
+    const mapPick = t.closest("[data-map-pick]");
+    if (mapPick) {
+      mapSelection = mapSelection && mapSelection.group === mapPick.dataset.mapPick ? null : { group: mapPick.dataset.mapPick };
+      applyMapSelection();
+      const card = document.querySelector(".bm-figures");
+      if (card) card.scrollIntoView({ block: "start", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+      return;
+    }
+    const addFromMap = t.closest("[data-add-catalog-from-map]");
+    if (addFromMap) {
+      const entry = CATALOG_BY_ID[addFromMap.dataset.addCatalogFromMap];
+      navTo("settings");
+      if (entry) { musclePickerOpen = true; musclePickerLinkId = null; musclePickerQuery = entry.name; render(); }
       return;
     }
     const delMuscle = t.closest("[data-del-muscle]");
@@ -2300,8 +2659,18 @@
     }
   }
 
-  // live updates: exercise search filter, and set inputs (see applySetField)
+  appEl.addEventListener("keydown", (e) => {
+    if ((e.key === "Enter" || e.key === " ") && e.target.matches && e.target.matches("[data-region]")) { e.preventDefault(); e.target.click(); }
+  });
+
+  // live updates: exercise search filter, muscle picker search, set inputs
   appEl.addEventListener("input", (e) => {
+    if (e.target.id === "muscle-search") {
+      musclePickerQuery = e.target.value;
+      const listEl = document.getElementById("muscle-picker-list");
+      if (listEl) listEl.innerHTML = musclePickerListHTML();
+      return;
+    }
     if (e.target.id === "exercise-search") {
       pickerSearch = e.target.value;
       const listEl = document.getElementById("exercise-list");
