@@ -1,4 +1,4 @@
-# We Go Gym
+# Custom Fit
 
 A simple, local-first gym tracker: log sessions and lifts, see which muscle groups are next in your rotation, and track your body weight. No accounts, no cloud, no build step: just files you open in a browser.
 

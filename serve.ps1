@@ -1,4 +1,4 @@
-# Zero-install local web server for We Go Gym (uses .NET, built into Windows).
+# Zero-install local web server for Custom Fit (uses .NET, built into Windows).
 # Run with:  .\serve.ps1
 # Then open http://localhost:8080 in Chrome. Press Ctrl+C here to stop it.
 

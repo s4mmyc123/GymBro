@@ -1,6 +1,6 @@
 {
-  "name": "We Go Gym",
-  "short_name": "We Go Gym",
+  "name": "Custom Fit",
+  "short_name": "Custom Fit",
   "description": "Gym session, lift, muscle rotation and body weight tracker",
   "start_url": "./index.html",
   "scope": "./",

@@ -487,3 +487,13 @@ to match. Service worker cache bumped to v16. Already-installed phones
 keep the old icon until the app is removed from the home screen and added
 again; that is how iOS and Android cache icons, not something the app can
 force.
+
+## 25. Renamed to Custom Fit  (10 Sep 2026)
+
+The app is now called Custom Fit everywhere: the page title, the name
+under the home-screen icon, the Home header, the About card (now v2.0),
+the README, and the backup error message. The export file is named
+custom-fit-backup-<date>.json. Old backups still import; the check is on
+the file's contents, not its name. Installed phones keep showing the old
+name under the icon until the app is removed from the home screen and
+added again, the same as the icon.

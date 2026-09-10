@@ -1,5 +1,5 @@
 /* =========================================================================
-   We Go Gym - local-first gym tracker
+   Custom Fit - local-first gym tracker
    Plain JS, no build step, no external dependencies.
 
    ARCHITECTURE NOTE (for future multi-user / friends scaling):
@@ -438,7 +438,7 @@
         // Step 1: is this a backup at all? (older files may also carry
         // "protein" or "photos" sections, which are simply ignored)
         if (!data || typeof data !== "object" || Array.isArray(data) || !TABLE_NAMES.some((k) => Array.isArray(data[k]))) {
-          throw new Error("not a We Go Gym backup");
+          throw new Error("not a Custom Fit backup");
         }
         const section = (k) => (Array.isArray(data[k]) ? data[k] : []);
         // Only user preferences come in from a backup; the first-run flags are
@@ -1771,7 +1771,7 @@
 
         <div class="card">
           <h2>About</h2>
-          <div class="small muted">We Go Gym v1.0 · local-only storage on this device (IndexedDB). Install to your home screen for the full-screen app feel. See the README for how.</div>
+          <div class="small muted">Custom Fit v2.0 · local-only storage on this device (IndexedDB). Install to your home screen for the full-screen app feel. See the README for how.</div>
         </div>
       </div>
     `;
@@ -1818,7 +1818,7 @@
   // -----------------------------------------------------------------------
   // Root render
   // -----------------------------------------------------------------------
-  const titles = { home: "We Go Gym", train: "Log Workout", progress: "Progress", weight: "Body Weight", settings: "Settings" };
+  const titles = { home: "Custom Fit", train: "Log Workout", progress: "Progress", weight: "Body Weight", settings: "Settings" };
 
   function render() {
     let body;
@@ -2227,7 +2227,7 @@
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `we-go-gym-backup-${todayStr()}.json`;
+      a.download = `custom-fit-backup-${todayStr()}.json`;
       document.body.appendChild(a); // Firefox needs it in the DOM to honour download=
       a.click();
       a.remove();
@@ -2288,7 +2288,7 @@
         if (r.settings) parts.push("settings");
         toast(parts.length ? "Imported " + parts.join(", ") : "Nothing new in that backup");
       } catch (err) {
-        toast(err && /not a We Go Gym backup/.test(err.message) ? "Import failed: not a We Go Gym backup" : "Import failed: invalid file");
+        toast(err && /not a Custom Fit backup/.test(err.message) ? "Import failed: not a Custom Fit backup" : "Import failed: invalid file");
       }
       return;
     }
