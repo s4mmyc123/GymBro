@@ -523,8 +523,8 @@ selected range, and a line underneath names your all-time best. The same
 1W to All range chips as the Weight tab follow (defaulting to 3 months,
 since lifts are logged less often than weigh-ins), then an area chart on
 a real time axis: estimated 1RM per training day for lifts, or the
-metric's own number (minutes, km, reps) for everything else, with the
-best point ringed. A lift with more than one variation gets an extra row
+metric's own number (minutes, km, reps) for everything else, with a
+short vertical tick at every logged day and the best point ringed. A lift with more than one variation gets an extra row
 of chips (All, Standard, Rope, ...) above the ranges; a lift with one
 variation never sees them. The old sparklines, the "since first log"
 percentage, the best-per-variation list and the per-session history list

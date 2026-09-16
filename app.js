@@ -1617,6 +1617,14 @@
 
     const last = points[points.length - 1];
 
+    // A short vertical tick through the line at every logged day, so you
+    // can see where the entries are (and where the scrub will snap).
+    // Skipped once points sit closer than a few pixels apart, where the
+    // ticks would merge into a band - the scrub still finds them.
+    const notches = (w - padX * 2) / Math.max(1, points.length - 1) >= 7
+      ? points.slice(0, -1).map((p, i) => { const x = xAt(i), y = yAt(p.value); return `<line x1="${x}" y1="${y - 4}" x2="${x}" y2="${y + 4}" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round"/>`; }).join("")
+      : "";
+
     const ref = opts.reference;
     const referenceLine = ref ? `
       <line x1="${padX}" y1="${yAt(ref.value)}" x2="${w - padX}" y2="${yAt(ref.value)}" stroke="var(--good)" stroke-width="1.5" stroke-dasharray="4 3"/>
@@ -1653,6 +1661,7 @@
         ${gridLines}
         <polygon points="${areaPts}" fill="url(#areaGradient)" stroke="none"/>
         <polyline points="${linePts}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        ${notches}
         <circle cx="${xAt(points.length - 1)}" cy="${yAt(last.value)}" r="3.5" fill="var(--accent)"/>
         ${referenceLine}
         ${markerHTML}
