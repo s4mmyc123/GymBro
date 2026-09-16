@@ -550,3 +550,13 @@ The dot and the palette are gone, groups no longer store a colour, and
 the colour is dropped from old records and backups on the way in.
 Importing a backup now only updates a group's weekly frequency. Service
 worker cache bumped to v20.
+
+## 29. Explanations move behind an "i" button  (16 Sep 2026)
+
+The paragraph of explanation that sat under five card titles (Strength
+Index, Start a workout, Muscle groups, Exercise library, Data) is hidden
+by default. Each of those titles now ends in a small round "i" button;
+tapping it shows the same text under the title, tapping again hides it.
+The button turns orange while its text is showing. The About line in
+Settings and the storage warning are not explanations and stay as they
+were. Service worker cache bumped to v21.

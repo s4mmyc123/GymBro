@@ -898,6 +898,7 @@
     exerciseRange: "3m",  // chart window on the exercise detail screen (lifts are logged less often than weigh-ins)
     exerciseVariation: null, // variation shown on the exercise detail screen; null = all
     openRecordGroups: {}, // Progress > Records: muscle group name -> true while expanded
+    openInfo: {},         // card explanations: key -> true while shown (see infoButton)
     storage: null         // { usage, quota, persisted } from navigator.storage, or null if unsupported
   };
 
@@ -1088,8 +1089,8 @@
       return `
         <div class="view">
           <div class="card">
-            <h2>Start a workout</h2>
-            <div class="small muted" style="margin-bottom:12px">Add exercises and log sets as you go. Finish when done.</div>
+            <h2>Start a workout ${infoButton("train")}</h2>
+            ${infoText("train", `Add exercises and log sets as you go. Finish when done.`)}
             <button class="btn primary block" id="start-session">Start New Session</button>
           </div>
         </div>
@@ -1706,6 +1707,17 @@
     `;
   }
 
+  // Explanations live behind a small "i" button in a card's title; tapping
+  // it shows the text under the title until tapped again. Cards stay
+  // about their content, and the reasoning stays one tap away.
+  function infoButton(key) {
+    const open = !!state.openInfo[key];
+    return `<button class="info-btn" data-info-toggle="${key}" aria-expanded="${open}" aria-label="About this">i</button>`;
+  }
+  function infoText(key, text) {
+    return state.openInfo[key] ? `<div class="info-text">${text}</div>` : "";
+  }
+
   function strengthIndexCard() {
     const { overallSeries, byMuscle } = computeStrengthIndex(state.sessions, state.exercises);
     const latest = overallSeries.length > 1 ? Math.round(overallSeries[overallSeries.length - 1].value) : null;
@@ -1722,8 +1734,8 @@
     });
 
     return `
-      <h2>Strength Index</h2>
-      <div class="small muted" style="margin-bottom:10px">A rough "are you moving more weight than when you started" score. It averages each lift's growth vs. its own baseline (the best of its first two days, per variation), so exercises at very different weights can be compared fairly.</div>
+      <h2>Strength Index ${infoButton("strength")}</h2>
+      ${infoText("strength", `A rough "are you moving more weight than when you started" score. It averages each lift's growth vs. its own baseline (the best of its first two days, per variation), so exercises at very different weights can be compared fairly.`)}
       ${latest === null ? `<div class="empty">Log a couple of sessions for the same lifts to start seeing this.</div>` : `
         <div class="row" style="align-items:flex-end;margin-bottom:10px">
           <div>
@@ -1777,8 +1789,8 @@
     return `
       <div class="view">
         <div class="card">
-          <h2>Muscle groups</h2>
-          <div class="small muted" style="margin-bottom:8px">Pick which muscle groups you want to track and how many times per week you're aiming to train each. Rotation and the Strength Index are both built from this list.</div>
+          <h2>Muscle groups ${infoButton("groups")}</h2>
+          ${infoText("groups", `Pick which muscle groups you want to track and how many times per week you're aiming to train each. Rotation and the Strength Index are both built from this list.`)}
           ${state.muscleGroups.length === 0 ? `<div class="empty">No muscle groups yet. Add your first below.</div>` : `
           <div style="margin-bottom:12px">
             ${state.muscleGroups.map((mg) => `
@@ -1800,8 +1812,8 @@
         </div>
 
         <div class="card">
-          <h2>Exercise library</h2>
-          <div class="small muted" style="margin-bottom:8px">Your own library. Each exercise has muscle groups, optional variations (attachments, grips, one/two-handed). Variations track their own last-time and best numbers.</div>
+          <h2>Exercise library ${infoButton("library")}</h2>
+          ${infoText("library", `Your own library. Each exercise has muscle groups, optional variations (attachments, grips, one/two-handed). Variations track their own last-time and best numbers.`)}
           ${state.exercises.length === 0 ? `<div class="empty">No exercises yet. Add your first below.</div>` : `
           <div style="max-height:320px;overflow:auto;margin-bottom:12px">
             ${state.exercises.map((ex) => `
@@ -1819,8 +1831,8 @@
         </div>
 
         <div class="card">
-          <h2>Data</h2>
-          <div class="small muted" style="margin-bottom:10px">Everything (sessions, lifts, body weight and muscle groups) is stored only on this device. Export a backup regularly, or use export/import to move data to another phone - and later, to a shared setup if friends join in.</div>
+          <h2>Data ${infoButton("data")}</h2>
+          ${infoText("data", `Everything (sessions, lifts, body weight and muscle groups) is stored only on this device. Export a backup regularly, or use export/import to move data to another phone, and later to a shared setup if friends join in.`)}
           ${storageReadoutHTML()}
           <div class="btn-row">
             <button class="btn" id="export-data">Export backup (.json)</button>
@@ -1971,6 +1983,12 @@
     if (navBtn) { navTo(navBtn.dataset.nav); return; }
 
     if (t.closest("[data-back-progress]")) { state.progressDetail = null; render(); return; }
+    const infoBtn = t.closest("[data-info-toggle]");
+    if (infoBtn) {
+      const key = infoBtn.dataset.infoToggle;
+      if (state.openInfo[key]) delete state.openInfo[key]; else state.openInfo[key] = true;
+      render(); return;
+    }
     const groupHead = t.closest("[data-toggle-record-group]");
     if (groupHead) {
       const mg = groupHead.dataset.toggleRecordGroup;
