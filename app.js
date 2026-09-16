@@ -891,7 +891,6 @@
     { key: "all", label: "All", days: Infinity }
   ];
 
-  const routes = ["home", "train", "progress", "weight", "settings"];
   let state = {
     route: "home",
     exercises: [],
@@ -1291,7 +1290,7 @@
     for (const b of byVariation) {
       let lift = lifts[b.exerciseId];
       if (!lift) {
-        const ex = state.exercises.find((e) => e.id === b.exerciseId) || exerciseStubFromSessions(b.exerciseId);
+        const ex = exerciseOrStub(b.exerciseId);
         if (!ex) continue;
         lift = lifts[b.exerciseId] = { ex, best: b, variations: 0 };
       }
@@ -1320,10 +1319,10 @@
       const items = groups[mg].sort((a, b) => a.ex.name.localeCompare(b.ex.name));
       const open = !!state.openRecordGroups[mg];
       return `
-        <div class="record-group${open ? " open" : ""}">
+        <div class="record-group">
           <div class="row list-tap record-group-head" role="button" aria-expanded="${open}" data-toggle-record-group="${esc(mg)}">
             <span>${esc(mg)} <span class="small muted">· ${items.length} ${items.length === 1 ? "lift" : "lifts"}</span></span>
-            <span class="record-group-side">${icon("chevron")}</span>
+            ${icon("chevron")}
           </div>
           ${open ? items.map((i) => `
             <div class="row list-tap record-row" data-view-exercise="${i.ex.id}">
@@ -1341,9 +1340,11 @@
     return rotation.map(rotationItemHTML).join("");
   }
 
-  // For an exercise that's been deleted from the library, rebuild enough of
-  // it from the most recent session snapshot that its history still opens.
-  function exerciseStubFromSessions(exId) {
+  // Exercise by id. One that's been deleted from the library is rebuilt from
+  // its most recent session snapshot, so its records and history still open.
+  function exerciseOrStub(exId) {
+    const ex = state.exercises.find((e) => e.id === exId);
+    if (ex) return ex;
     for (const s of state.sessions) {
       const entry = s.entries.find((e) => e.exerciseId === exId);
       if (entry) return { id: exId, name: entry.exerciseName, muscleGroups: entry.muscleGroups || [], metric: entry.metric || DEFAULT_METRIC, deleted: true };
@@ -1352,7 +1353,7 @@
   }
 
   function viewProgressDetail(exId) {
-    const ex = state.exercises.find((e) => e.id === exId) || exerciseStubFromSessions(exId);
+    const ex = exerciseOrStub(exId);
     if (!ex) { state.progressDetail = null; return viewProgress(); }
     const metric = ex.metric || DEFAULT_METRIC;
     const deletedNote = ex.deleted ? `<div class="small muted" style="margin-bottom:8px">No longer in your library. Showing logged history only.</div>` : "";
@@ -1367,7 +1368,7 @@
     if (history.length > 0) {
       const best = history.reduce((m, h) => (!m || h.orm > m.orm ? h : m), null);
       const first = history[0];
-      const delta = first && best && first.orm > 0 ? Math.round(((best.orm - first.orm) / first.orm) * 100) : null;
+      const delta = first.orm > 0 ? Math.round(((best.orm - first.orm) / first.orm) * 100) : null;
       // Only worth a section once more than one variation has history (or the
       // sole variation isn't "Standard") - otherwise it just repeats "Best".
       const perVariation = Object.values(bestSetsByVariation(state.sessions))
@@ -1409,7 +1410,7 @@
       <div class="view">
         <button class="btn sm ghost" data-back-progress style="align-self:flex-start">${icon("back")} Back</button>
         <div class="card">
-          <div class="row" style="align-items:center;margin-bottom:4px"><h2 style="margin:0">${esc(ex.name)}</h2></div>
+          <h2 style="margin-bottom:4px">${esc(ex.name)}</h2>
           <div class="small muted" style="margin-bottom:10px">${esc(ex.muscleGroups.join(", "))}${metric !== "weight_reps" ? ` · ${metricLabel(metric)}` : ""}</div>
           ${deletedNote}
           ${strengthHTML}
@@ -1420,33 +1421,33 @@
     `;
   }
 
-  function sparkline(values) {
-    const w = 300, h = 44, pad = 4;
+  // Scales a series into a w×h box (inset by the paddings): evenly spaced
+  // left to right, lowest value at the bottom. Shared by both line charts.
+  function plotPoints(values, w, h, padX, padY) {
     const max = Math.max(...values), min = Math.min(...values);
     const range = max - min || 1;
-    const pts = values.map((v, i) => {
-      const x = pad + (i / (values.length - 1)) * (w - pad * 2);
-      const y = h - pad - ((v - min) / range) * (h - pad * 2);
-      return `${x},${y}`;
-    });
+    return values.map((v, i) => ({
+      x: padX + (i / (values.length - 1)) * (w - padX * 2),
+      y: padY + (1 - (v - min) / range) * (h - padY * 2)
+    }));
+  }
+  const polylinePoints = (pts) => pts.map((p) => `${p.x},${p.y}`).join(" ");
+
+  function sparkline(values) {
+    const w = 300, h = 44;
     return `<svg class="sparkline" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
-      <polyline points="${pts.join(" ")}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <polyline points="${polylinePoints(plotPoints(values, w, h, 4, 4))}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>`;
   }
 
   // Bigger line chart with axis labels - used for body weight and Strength Index trends
   function trendChart(points, formatValue, color) {
-    const w = 300, h = 100, padX = 8, padY = 16;
+    const w = 300, h = 100;
     color = color || "var(--accent)";
     const values = points.map((p) => p.value);
     const max = Math.max(...values), min = Math.min(...values);
-    const range = max - min || 1;
-    const pts = values.map((v, i) => {
-      const x = padX + (i / (values.length - 1)) * (w - padX * 2);
-      const y = padY + (1 - (v - min) / range) * (h - padY * 2);
-      return { x, y };
-    });
-    const line = pts.map((p) => `${p.x},${p.y}`).join(" ");
+    const pts = plotPoints(values, w, h, 8, 16);
+    const line = polylinePoints(pts);
     const dots = pts.map((p) => `<circle cx="${p.x}" cy="${p.y}" r="2.5" fill="${color}" />`).join("");
     return `
       <div class="small muted" style="text-align:right;margin-bottom:2px">${formatValue(max)}</div>
