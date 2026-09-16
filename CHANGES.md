@@ -540,3 +540,13 @@ bottom axis no longer labels individual points; it shows evenly spaced
 date bins instead, choosing days, Mondays, months, quarters or years to
 suit the span. The Weight tab keeps its history list, since that is where
 weigh-ins are deleted. Service worker cache bumped to v19.
+
+## 28. Muscle group colours removed  (16 Sep 2026)
+
+Each muscle group used to be given a colour from a fixed palette when it
+was created, shown only as a small dot beside its name in Settings.
+Nothing else used it: rotation bars are coloured by status, not by group.
+The dot and the palette are gone, groups no longer store a colour, and
+the colour is dropped from old records and backups on the way in.
+Importing a backup now only updates a group's weekly frequency. Service
+worker cache bumped to v20.

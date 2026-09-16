@@ -25,9 +25,8 @@ getting stronger?" in one glance. Every rule below serves that.
   about 20 hard-coded colours outside `:root` (tints of the accent, the
   Strength Index purple, text-on-accent); the overhaul folds each into a
   named token.
-- The muscle group palette (the colours used for group dots and bars) is
-  the one exception: it is a named list in `app.js`, because it is data,
-  not chrome.
+- Muscle groups have no colour of their own. Rotation bars are coloured by
+  status (good, due, overdue), never by which group they are.
 - No inline `style=""` in `app.js` for anything reusable. There are 89 today.
   A one-off alignment tweak is fine; a font size, colour, or spacing is not.
 

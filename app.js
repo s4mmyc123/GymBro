@@ -18,21 +18,10 @@
   // Constants
   // -----------------------------------------------------------------------
   // Muscle groups are fully user-managed (see the Settings tab) - each one
-  // has a name, a target weekly frequency, and a color assigned from this
-  // palette when it's created. Defaults below are only used to seed a
+  // has a name and a target weekly frequency. Defaults below only seed a
   // starting list for new installs; the user can rename the concept
   // entirely by deleting/adding groups afterwards.
-  const MUSCLE_COLOR_PALETTE = [
-    "#f97316", "#38bdf8", "#a78bfa", "#f472b6", "#fb7185", "#60a5fa", "#4ade80", "#fbbf24", "#ef4444",
-    "#2dd4bf", "#facc15", "#c084fc", "#fb923c", "#34d399"
-  ];
-  const DEFAULT_MUSCLE_GROUPS = [
-    { name: "Chest", color: "#f97316" }, { name: "Back", color: "#38bdf8" },
-    { name: "Shoulders", color: "#a78bfa" }, { name: "Biceps", color: "#f472b6" },
-    { name: "Triceps", color: "#fb7185" }, { name: "Legs", color: "#60a5fa" },
-    { name: "Quads", color: "#4ade80" }, { name: "Abs", color: "#fbbf24" },
-    { name: "Cardio", color: "#ef4444" }
-  ];
+  const DEFAULT_MUSCLE_GROUPS = ["Chest", "Back", "Shoulders", "Biceps", "Triceps", "Legs", "Quads", "Abs", "Cardio"];
   const DEFAULT_FREQUENCY = 2; // times per week
   const FREQUENCY_MAX = 14;    // times per week (matches the input's max attribute)
 
@@ -128,7 +117,7 @@
   //                               ENTRY = { exerciseId, exerciseName, muscleGroups, variation, metric, sets: [ SET, .. ] }
   //                               SET   = { weight, reps } or { reps } or { minutes } or { distance }
   //   bodyweight    date        { date, weight, loggedAt }
-  //   muscleGroups  id          { id, name, frequency, color }
+  //   muscleGroups  id          { id, name, frequency }
   //   settings      key         { key, value }   see the list of keys below
   //
   // Things worth knowing about the model:
@@ -315,14 +304,15 @@
       });
     }
 
-    function tidyMuscleGroup(mg, index) {
+    // Older records and backups carry a colour; it is dropped on the way out.
+    function tidyMuscleGroup(mg) {
       if (!mg || !isText(mg.id) || !isText(mg.name)) return null;
       const freq = Math.round(Number(mg.frequency));
-      return Object.assign({}, mg, {
+      return {
+        id: mg.id,
         name: cleanTag(mg.name),
-        frequency: Number.isFinite(freq) ? Math.min(FREQUENCY_MAX, Math.max(1, freq)) : DEFAULT_FREQUENCY,
-        color: /^#[0-9a-f]{6}$/i.test(String(mg.color || "")) ? mg.color : MUSCLE_COLOR_PALETTE[index % MUSCLE_COLOR_PALETTE.length]
-      });
+        frequency: Number.isFinite(freq) ? Math.min(FREQUENCY_MAX, Math.max(1, freq)) : DEFAULT_FREQUENCY
+      };
     }
 
     function tidyBodyweight(bw) {
@@ -374,8 +364,8 @@
     // A new install starts with a default muscle group list to edit.
     async function seedMuscleGroups() {
       if ((await getAll("muscleGroups")).length > 0) return;
-      for (const mg of DEFAULT_MUSCLE_GROUPS) {
-        await put("muscleGroups", { id: uid(), name: mg.name, frequency: DEFAULT_FREQUENCY, color: mg.color });
+      for (const name of DEFAULT_MUSCLE_GROUPS) {
+        await put("muscleGroups", { id: uid(), name, frequency: DEFAULT_FREQUENCY });
       }
     }
 
@@ -386,14 +376,7 @@
 
       // Muscle groups
       listMuscleGroups: () => list("muscleGroups", tidyMuscleGroup, byName),
-      addMuscleGroup: async (name, frequency) => {
-        // First palette colour not already in use, so re-adding a deleted group
-        // doesn't give two groups the same swatch. Past 14 groups, cycle.
-        const existing = await getAll("muscleGroups");
-        const used = new Set(existing.map((m) => m.color));
-        const color = MUSCLE_COLOR_PALETTE.find((c) => !used.has(c)) || MUSCLE_COLOR_PALETTE[existing.length % MUSCLE_COLOR_PALETTE.length];
-        return put("muscleGroups", { id: uid(), name, frequency, color });
-      },
+      addMuscleGroup: (name, frequency) => put("muscleGroups", { id: uid(), name, frequency }),
       updateMuscleGroup: (mg) => put("muscleGroups", mg),
       deleteMuscleGroup: (id) => del("muscleGroups", id),
 
@@ -468,8 +451,8 @@
           if (!current) {
             muscleGroups.push(m);
             byLowerName[key] = m;
-          } else if (current.frequency !== m.frequency || current.color !== m.color) {
-            const merged = Object.assign({}, current, { frequency: m.frequency, color: m.color });
+          } else if (current.frequency !== m.frequency) {
+            const merged = Object.assign({}, current, { frequency: m.frequency });
             muscleGroups.push(merged);
             byLowerName[key] = merged;
             updatedGroups++;
@@ -1800,7 +1783,7 @@
           <div style="margin-bottom:12px">
             ${state.muscleGroups.map((mg) => `
               <div class="row" style="align-items:center">
-                <span style="display:flex;align-items:center;gap:8px"><span style="width:10px;height:10px;border-radius:50%;background:${mg.color};display:inline-block;flex-shrink:0"></span>${esc(mg.name)}</span>
+                <span>${esc(mg.name)}</span>
                 <span style="display:flex;align-items:center;gap:8px">
                   <input type="number" inputmode="numeric" min="1" max="14" value="${mg.frequency}" data-muscle-freq="${mg.id}" style="width:56px" />
                   <span class="small muted">x/wk</span>
