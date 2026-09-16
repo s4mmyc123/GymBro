@@ -690,10 +690,12 @@
     return order;
   }
 
-  // Flat, chronological log of every set for a non-weight_reps exercise
-  // (time / distance / reps-only) - no "best" concept, just the raw numbers.
-  function genericSetHistory(sessions, exerciseId) {
-    const history = [];
+  // Chronological history for a non-weight_reps exercise (time / distance /
+  // reps-only): one row per day, keeping the set with the highest value of
+  // the metric's field (longest run, most reps), mirroring exerciseHistory.
+  function genericHistory(sessions, exerciseId) {
+    const byDay = {};
+    const order = [];
     for (const s of chronological(sessions)) {
       for (const entry of s.entries) {
         if (entry.exerciseId !== exerciseId) continue;
@@ -701,13 +703,17 @@
         // Weight×reps sets belong to exerciseHistory; an exercise whose
         // metric was changed after logging keeps both kinds of history.
         if (metric === "weight_reps") continue;
+        const field = metricFields(metric)[0];
         for (const set of entry.sets) {
-          if (!Object.values(set).some((v) => v)) continue;
-          history.push({ date: s.date, set, metric });
+          const value = Number(set[field.key]);
+          if (!(value > 0)) continue;
+          let row = byDay[s.date];
+          if (!row) { row = byDay[s.date] = { date: s.date, value: 0, set, metric }; order.push(row); }
+          if (value > row.value) { row.value = value; row.set = set; row.metric = metric; }
         }
       }
     }
-    return history;
+    return order;
   }
 
   // Sessions store a name snapshot per entry so history survives deletion,
@@ -742,15 +748,20 @@
     return history.map((h) => ({ date: h.date, value: (h.orm / base) * 100 }));
   }
 
-  // One normalized series per variation of the exercise that has lift history.
-  function exerciseVariationSeries(sessions, exerciseId) {
+  // Every variation ("" = Standard) of an exercise that has weight×reps history
+  function liftVariations(sessions, exerciseId) {
     const variations = new Set();
     for (const s of sessions) {
       for (const entry of s.entries) {
         if (entry.exerciseId === exerciseId && entry.sets.some(isLiftSet)) variations.add(entry.variation || "");
       }
     }
-    return Array.from(variations)
+    return Array.from(variations);
+  }
+
+  // One normalized series per variation of the exercise that has lift history.
+  function exerciseVariationSeries(sessions, exerciseId) {
+    return liftVariations(sessions, exerciseId)
       .map((v) => normalizedSeries(exerciseHistory(sessions, exerciseId, v)))
       .filter((series) => series.length > 0);
   }
@@ -901,6 +912,8 @@
     weightRange: "2w",   // defaults to 2 weeks, per WEIGHT_RANGES above
     activeSession: null,  // in-memory in-progress workout
     progressDetail: null, // exerciseId being viewed in detail
+    exerciseRange: "3m",  // chart window on the exercise detail screen (lifts are logged less often than weigh-ins)
+    exerciseVariation: null, // variation shown on the exercise detail screen; null = all
     openRecordGroups: {}, // Progress > Records: muscle group name -> true while expanded
     storage: null         // { usage, quota, persisted } from navigator.storage, or null if unsupported
   };
@@ -1352,77 +1365,119 @@
     return null;
   }
 
+  // Exercise detail: laid out like the Weight tab. One headline (the most
+  // recent session's top set), the change over the selected range, an area
+  // chart on a real time axis, then the history. Lifts plot estimated 1RM
+  // per day, since it rises whether you added weight or reps and is what
+  // the app already uses for bests and PRs; other metrics plot their own
+  // field (minutes, km, reps). Variation chips only appear once a lift has
+  // more than one variation with history.
   function viewProgressDetail(exId) {
     const ex = exerciseOrStub(exId);
     if (!ex) { state.progressDetail = null; return viewProgress(); }
-    const metric = ex.metric || DEFAULT_METRIC;
     const deletedNote = ex.deleted ? `<div class="small muted" style="margin-bottom:8px">No longer in your library. Showing logged history only.</div>` : "";
 
-    // An exercise can carry both kinds of history if its metric was changed
-    // after some sessions were logged - show whichever exist, rather than
-    // picking one by the library's current metric and mis-formatting the rest.
-    const history = exerciseHistory(state.sessions, exId);        // weight×reps, one row per session
-    const generic = genericSetHistory(state.sessions, exId);      // time / distance / reps-only sets
+    const variations = liftVariations(state.sessions, exId);
+    const variation = variations.length > 1 && state.exerciseVariation !== null && variations.includes(state.exerciseVariation)
+      ? state.exerciseVariation : undefined; // undefined = every variation together
+    const lifts = exerciseHistory(state.sessions, exId, variation); // one row per day
+    const generic = genericHistory(state.sessions, exId);
+    const isLift = lifts.length > 0;
+    const history = isLift ? lifts : generic;
 
-    let strengthHTML = "";
+    let summaryHTML = "", monthsHTML = "";
     if (history.length > 0) {
-      const best = history.reduce((m, h) => (!m || h.orm > m.orm ? h : m), null);
-      const first = history[0];
-      const delta = first.orm > 0 ? Math.round(((best.orm - first.orm) / first.orm) * 100) : null;
-      // Only worth a section once more than one variation has history (or the
-      // sole variation isn't "Standard") - otherwise it just repeats "Best".
-      const perVariation = Object.values(bestSetsByVariation(state.sessions))
-        .filter((b) => b.exerciseId === exId)
-        .sort((a, b) => b.orm - a.orm);
-      const showVariations = perVariation.length > 1 || (perVariation.length === 1 && perVariation[0].variation);
-      strengthHTML = `
-          <div class="btn-row" style="margin-bottom:12px">
-            <span class="pill good">Best ${best.weight}kg × ${best.reps}</span>
-            <span class="small muted" style="align-self:center">~${Math.round(best.orm)}kg 1RM · ${fmtDate(best.date)}</span>
-            ${delta !== null ? `<span class="pill ${delta >= 0 ? "good" : "bad"}">${delta >= 0 ? "+" : ""}${delta}% since first log</span>` : ""}
-          </div>
-          ${showVariations ? `
-          <div class="small muted" style="margin:4px 0 2px">Best per variation</div>
-          <div style="margin-bottom:12px">${perVariation.map((b) => `
-            <div class="row"><span class="small">${b.variation ? esc(b.variation) : "Standard"}</span><span class="small">${b.weight}kg × ${b.reps} <span class="muted">(~${Math.round(b.orm)}kg 1RM)</span> · ${fmtDate(b.date)}</span></div>
-          `).join("")}</div>` : ""}
-          ${history.length > 1 ? `<div class="small muted" style="margin-bottom:2px">Estimated 1RM trend</div>${sparkline(history.map((h) => h.orm))}` : ""}
-          ${history.length > 1 ? `<div class="small muted" style="margin:10px 0 2px">Session volume (weight × reps)</div>${sparkline(history.map((h) => h.volume))}` : ""}
-          <div style="margin-top:10px">${history.slice().reverse().map((h) => `
-            <div class="row"><span class="small">${fmtDate(h.date)}</span><span class="small">${h.weight}kg × ${h.reps} <span class="muted">(~${Math.round(h.orm)}kg 1RM)</span></span></div>
-          `).join("")}</div>`;
-    }
+      const latest = history[history.length - 1];
+      const inRange = filterDateRange(history, state.exerciseRange);
+      const value = (h) => isLift ? h.orm : h.value;
+      const best = history.reduce((m, h) => (value(h) > value(m) ? h : m), history[0]);
+      const unit = isLift ? "kg" : metricFields(latest.metric)[0].unit;
+      const fmtValue = (v) => `${unit === "reps" || isLift ? Math.round(v) : Math.round(v * 10) / 10}${unit === "reps" ? " reps" : unit === "kg" ? "kg" : " " + unit}`;
+      const setText = (h) => isLift ? `${h.weight}kg × ${h.reps}` : formatSetValue(h.set, h.metric);
+      monthsHTML = monthlySummaryHTML(history, value, (v) => isLift ? `~${Math.round(v)}kg est. 1RM` : fmtValue(v), setText);
 
-    let genericHTML = "";
-    if (generic.length > 0) {
-      // A trend line only when every logged set shares one metric
-      const metrics = new Set(generic.map((h) => h.metric));
-      const field = metrics.size === 1 ? metricFields(generic[0].metric)[0] : null;
-      genericHTML = `
-          ${history.length > 0 ? `<div class="small muted" style="margin:14px 0 4px">Other logged sets</div>` : ""}
-          ${field && generic.length > 1 ? `<div class="small muted" style="margin-bottom:2px">${field.unit} trend</div>${sparkline(generic.map((h) => Number(h.set[field.key]) || 0))}` : ""}
-          <div style="margin-top:10px">${generic.slice().reverse().map((h) => `
-            <div class="row"><span class="small">${fmtDate(h.date)}</span><span class="small">${formatSetValue(h.set, h.metric)}</span></div>
-          `).join("")}</div>`;
+      // Change across the selected range: first point in range to the latest
+      let deltaHTML = "";
+      if (inRange.length > 1) {
+        const from = value(inRange[0]), to = value(latest);
+        if (isLift) {
+          const pct = from > 0 ? Math.round(((to - from) / from) * 100) : 0;
+          deltaHTML = `<span class="pill ${pct > 0 ? "good" : pct < 0 ? "bad" : ""}">${pct > 0 ? "+" : ""}${pct}% est. 1RM over selected range</span>`;
+        } else {
+          const diff = Math.round((to - from) * 10) / 10;
+          deltaHTML = `<span class="pill">${diff > 0 ? "+" : ""}${fmtValue(diff)} over selected range</span>`;
+        }
+      }
+
+      // Only chart when every day in range shares one metric (a changed
+      // metric leaves mixed history; the list below still shows it all)
+      const chartable = inRange.length > 1 && (isLift || inRange.every((h) => h.metric === inRange[0].metric));
+      const bestIdx = inRange.indexOf(best);
+      const chartHTML = chartable
+        ? areaChart(inRange.map((h) => ({ date: h.date, value: value(h) })), {
+            format: fmtValue,
+            readouts: inRange.map((h) => `${fmtDate(h.date)} · ${setText(h)}${isLift ? ` · ~${Math.round(h.orm)}kg est. 1RM` : ""}`),
+            marker: bestIdx !== -1 ? { index: bestIdx, label: "Best" } : null
+          })
+        : inRange.length === 1 ? `<div class="empty">Only one session in this range. Widen the range to see a trend.</div>`
+        : inRange.length === 0 ? `<div class="empty">No sessions in this range.</div>`
+        : `<div class="empty">Sets in this range were logged with different metrics, so there's no single trend to chart.</div>`;
+
+      summaryHTML = `
+          <div style="font-size:30px;font-weight:800;line-height:1.1">${setText(latest)}</div>
+          <div class="small muted" style="margin-top:2px">${isLift ? `~${Math.round(latest.orm)}kg est. 1RM · ` : ""}${fmtDate(latest.date)}</div>
+          ${deltaHTML ? `<div style="margin:6px 0 2px">${deltaHTML}</div>` : ""}
+          <div class="small muted" style="margin-top:6px">Best ${setText(best)}${isLift ? ` · ~${Math.round(best.orm)}kg est. 1RM` : ""} · ${fmtDate(best.date)}</div>
+          ${variations.length > 1 ? `<div class="range-tabs" style="margin-bottom:0">
+            <button class="${variation === undefined ? "active" : ""}" data-variation-all>All</button>
+            ${variations.map((v) => `<button class="${variation === v ? "active" : ""}" data-variation="${esc(v)}">${v ? esc(v) : "Standard"}</button>`).join("")}
+          </div>` : ""}
+          ${rangeSelectorHTML(state.exerciseRange, "exerciseRange")}
+          ${chartHTML}`;
     }
 
     return `
       <div class="view">
         <button class="btn sm ghost" data-back-progress style="align-self:flex-start">${icon("back")} Back</button>
         <div class="card">
-          <h2 style="margin-bottom:4px">${esc(ex.name)}</h2>
-          <div class="small muted" style="margin-bottom:10px">${esc(ex.muscleGroups.join(", "))}${metric !== "weight_reps" ? ` · ${metricLabel(metric)}` : ""}</div>
+          <h2 style="margin-bottom:2px">${esc(ex.name)}</h2>
+          <div class="small muted" style="margin-bottom:10px">${esc(ex.muscleGroups.join(", "))}</div>
           ${deletedNote}
-          ${strengthHTML}
-          ${genericHTML}
-          ${history.length === 0 && generic.length === 0 ? `<div class="empty">No sets logged for this exercise yet.</div>` : ""}
+          ${summaryHTML || `<div class="empty">No sets logged for this exercise yet.</div>`}
         </div>
+        ${monthsHTML ? `
+        <div class="card">
+          <h2>By month</h2>
+          ${monthsHTML}
+        </div>` : ""}
       </div>
     `;
   }
 
+  // One row per calendar month with history, newest first: how many days
+  // it was trained, the average of the plotted value, and the best set.
+  // The chart shows every session; this is the coarser view.
+  function monthlySummaryHTML(history, value, fmtAverage, setText) {
+    const months = {};
+    const order = [];
+    for (const h of history) {
+      const key = h.date.slice(0, 7);
+      let m = months[key];
+      if (!m) { m = months[key] = { key, count: 0, sum: 0, best: h }; order.push(m); }
+      m.count++;
+      m.sum += value(h);
+      if (value(h) > value(m.best)) m.best = h;
+    }
+    return order.reverse().slice(0, 24).map((m) => `
+      <div class="row">
+        <span><span class="small">${new Date(m.key + "-01T00:00:00").toLocaleDateString(undefined, { month: "long", year: "numeric" })}</span><div class="small muted">${m.count} session${m.count === 1 ? "" : "s"}</div></span>
+        <span style="text-align:right;flex-shrink:0"><span class="small">avg ${fmtAverage(m.sum / m.count)}</span><div class="small muted">best ${setText(m.best)}</div></span>
+      </div>
+    `).join("");
+  }
+
   // Scales a series into a w×h box (inset by the paddings): evenly spaced
-  // left to right, lowest value at the bottom. Shared by both line charts.
+  // left to right, lowest value at the bottom.
   function plotPoints(values, w, h, padX, padY) {
     const max = Math.max(...values), min = Math.min(...values);
     const range = max - min || 1;
@@ -1432,13 +1487,6 @@
     }));
   }
   const polylinePoints = (pts) => pts.map((p) => `${p.x},${p.y}`).join(" ");
-
-  function sparkline(values) {
-    const w = 300, h = 44;
-    return `<svg class="sparkline" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
-      <polyline points="${polylinePoints(plotPoints(values, w, h, 4, 4))}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-    </svg>`;
-  }
 
   // Bigger line chart with axis labels - used for body weight and Strength Index trends
   function trendChart(points, formatValue, color) {
@@ -1479,13 +1527,36 @@
     `;
   }
 
-  function fmtShortDate(dateStr, withYear) {
-    const d = new Date(dateStr + "T00:00:00");
-    return d.toLocaleDateString(undefined, withYear ? { day: "numeric", month: "short", year: "2-digit" } : { day: "numeric", month: "short" });
+  // Axis labels at round dates (each day, every other day, Mondays, the
+  // 1st of the month, quarters, years): the finest step that fits in about
+  // eight labels across the span. t0/t1 are local-midnight timestamps.
+  function dateTicks(t0, t1) {
+    const day = 86400000;
+    const span = t1 - t0;
+    const steps = [{ days: 1 }, { days: 2 }, { days: 7 }, { months: 1 }, { months: 3 }, { months: 12 }];
+    const step = steps.find((s) => span / (s.days ? s.days * day : s.months * 30.4 * day) < 7.5) || steps[steps.length - 1];
+    const first = new Date(t0);
+    const ticks = [];
+    if (step.months) {
+      const d = new Date(first.getFullYear(), first.getMonth(), 1);
+      while (d.getTime() < t0 || d.getMonth() % step.months !== 0) d.setMonth(d.getMonth() + 1);
+      for (; d.getTime() <= t1; d.setMonth(d.getMonth() + step.months)) {
+        const label = step.months === 12 ? String(d.getFullYear())
+          : d.toLocaleDateString(undefined, { month: "short" }) + (span > 365 * day ? " '" + String(d.getFullYear()).slice(2) : "");
+        ticks.push({ t: d.getTime(), label });
+      }
+    } else {
+      const d = new Date(first.getFullYear(), first.getMonth(), first.getDate());
+      while (d.getTime() < t0 || (step.days === 7 && d.getDay() !== 1)) d.setDate(d.getDate() + 1);
+      for (; d.getTime() <= t1; d.setDate(d.getDate() + step.days)) {
+        ticks.push({ t: d.getTime(), label: d.toLocaleDateString(undefined, { day: "numeric", month: "short" }) });
+      }
+    }
+    return ticks;
   }
 
   // Entries within the selected WEIGHT_RANGES window (history must be date-ascending)
-  function filterBodyweightRange(history, rangeKey) {
+  function filterDateRange(history, rangeKey) {
     const opt = WEIGHT_RANGES.find((r) => r.key === rangeKey) || WEIGHT_RANGES[1];
     if (opt.days === Infinity) return history.slice();
     const cutoff = new Date();
@@ -1494,19 +1565,27 @@
     return history.filter((e) => e.date >= cutoffStr);
   }
 
-  function rangeSelectorHTML(selected) {
+  // Range chips. stateKey names the state field they drive: weightRange on
+  // the Weight tab, exerciseRange on an exercise's detail screen.
+  function rangeSelectorHTML(selected, stateKey) {
     return `<div class="range-tabs">${WEIGHT_RANGES.map((r) =>
-      `<button class="${r.key === selected ? "active" : ""}" data-weight-range="${r.key}">${r.label}</button>`
+      `<button class="${r.key === selected ? "active" : ""}" data-range="${r.key}" data-range-state="${stateKey}">${r.label}</button>`
     ).join("")}</div>`;
   }
 
   // Stock-app-style area chart: gradient fill under the line, gridlines with
-  // value labels, a marker on the latest point, and a few date labels along
-  // the bottom rather than one per data point.
-  function weightAreaChart(points, goal) {
+  // value labels, a dot on the latest point, and date bins along the bottom.
+  // Press and drag across it to read any point (see the pointer handlers
+  // near the click handler). points are { date, value }, date-ascending.
+  // Options: format(v) renders gridline labels; readouts[i] is the text
+  // shown for point i while scrubbing (the latest one shows by default);
+  // reference draws a dashed horizontal line ({ value, label }, the Weight
+  // goal); marker rings one point ({ index, label }, an exercise's best).
+  function areaChart(points, opts) {
+    const format = opts.format;
     const w = 320, h = 170, padX = 6, padTop = 16, padBottom = 22;
-    const values = points.map((p) => p.weight);
-    const scaleValues = goal ? values.concat([goal]) : values;
+    const values = points.map((p) => p.value);
+    const scaleValues = opts.reference ? values.concat([opts.reference.value]) : values;
     const rawMin = Math.min(...scaleValues), rawMax = Math.max(...scaleValues);
     const span = rawMax - rawMin || 1;
     const pad = span * 0.2 || 1;
@@ -1520,50 +1599,65 @@
     const xAt = (i) => padX + (points.length === 1 ? (w - padX * 2) / 2 : ((dayMs(points[i].date) - t0) / tSpan) * (w - padX * 2));
     const yAt = (v) => padTop + (1 - (v - min) / range) * (h - padTop - padBottom);
 
-    const linePts = points.map((p, i) => `${xAt(i)},${yAt(p.weight)}`).join(" ");
+    const linePts = points.map((p, i) => `${xAt(i)},${yAt(p.value)}`).join(" ");
     const areaPts = `${xAt(0)},${h - padBottom} ${linePts} ${xAt(points.length - 1)},${h - padBottom}`;
 
     const gridVals = [max - pad * 0.3, (max + min) / 2, min + pad * 0.3];
     const gridLines = gridVals.map((v) => {
       const y = yAt(v);
       return `<line x1="${padX}" y1="${y}" x2="${w - padX}" y2="${y}" stroke="var(--border)" stroke-width="1"/>
-        <text x="${padX}" y="${y - 4}" font-size="9" fill="var(--text-dim)">${v.toFixed(1)}</text>`;
+        <text x="${padX}" y="${y - 4}" font-size="9" fill="var(--text-dim)">${format(v)}</text>`;
     }).join("");
 
-    // Date labels: first, last, and whichever point sits nearest the middle
-    // of the axis - as long as it's clear of both ends.
-    let midIdx = -1, midDist = Infinity;
-    for (let i = 1; i < points.length - 1; i++) {
-      const d = Math.abs(xAt(i) - w / 2);
-      if (d < midDist) { midDist = d; midIdx = i; }
-    }
-    const midOk = midIdx > 0 && xAt(midIdx) - padX > 60 && (w - padX) - xAt(midIdx) > 60;
-    const labelIdxs = points.length > 2 ? (midOk ? [0, midIdx, points.length - 1] : [0, points.length - 1]) : points.map((_, i) => i);
-    const xLabels = labelIdxs.map((i) => {
-      const anchor = i === 0 ? "start" : i === points.length - 1 ? "end" : "middle";
-      return `<text x="${xAt(i)}" y="${h - 6}" font-size="9.5" fill="var(--text-dim)" text-anchor="${anchor}">${fmtShortDate(points[i].date, tSpan > 300 * 86400000)}</text>`;
+    const xLabels = dateTicks(t0, t0 + tSpan).map((tick) => {
+      const x = padX + ((tick.t - t0) / tSpan) * (w - padX * 2);
+      const anchor = x < 24 ? "start" : x > w - 24 ? "end" : "middle";
+      return `<text x="${x}" y="${h - 6}" font-size="9.5" fill="var(--text-dim)" text-anchor="${anchor}">${tick.label}</text>`;
     }).join("");
 
     const last = points[points.length - 1];
 
-    const goalLine = goal ? `
-      <line x1="${padX}" y1="${yAt(goal)}" x2="${w - padX}" y2="${yAt(goal)}" stroke="var(--good)" stroke-width="1.5" stroke-dasharray="4 3"/>
-      <text x="${w - padX}" y="${yAt(goal) - 4}" font-size="9" fill="var(--good)" text-anchor="end">Goal · ${goal}kg</text>
+    const ref = opts.reference;
+    const referenceLine = ref ? `
+      <line x1="${padX}" y1="${yAt(ref.value)}" x2="${w - padX}" y2="${yAt(ref.value)}" stroke="var(--good)" stroke-width="1.5" stroke-dasharray="4 3"/>
+      <text x="${w - padX}" y="${yAt(ref.value) - 4}" font-size="9" fill="var(--good)" text-anchor="end">${esc(ref.label)}</text>
     ` : "";
 
+    // Ring the marked point, label beside it on whichever side has room
+    let markerHTML = "";
+    if (opts.marker) {
+      const mx = xAt(opts.marker.index), my = yAt(points[opts.marker.index].value);
+      const left = mx > w - 44;
+      markerHTML = `
+      <circle cx="${mx}" cy="${my}" r="4.5" fill="none" stroke="var(--good)" stroke-width="2"/>
+      <text x="${left ? mx - 8 : mx + 8}" y="${my + 3}" font-size="9" font-weight="700" fill="var(--good)" text-anchor="${left ? "end" : "start"}">${esc(opts.marker.label)}</text>`;
+    }
+
+    // Point positions and readout text travel with the chart so scrubbing
+    // needs no re-render and no access to the data that drew it.
+    const xs = points.map((_, i) => Math.round(xAt(i) * 10) / 10);
+    const ys = points.map((p) => Math.round(yAt(p.value) * 10) / 10);
+    const readouts = opts.readouts;
+    const latestReadout = esc(readouts[readouts.length - 1]);
+
     return `
-      <svg viewBox="0 0 ${w} ${h}" style="width:100%;height:${h}px;display:block">
+      <div class="chart-readout" data-chart-readout data-default="${latestReadout}">${latestReadout}</div>
+      <svg viewBox="0 0 ${w} ${h}" style="width:100%;height:${h}px;display:block"
+           data-chart-xs="${esc(JSON.stringify(xs))}" data-chart-ys="${esc(JSON.stringify(ys))}" data-chart-readouts="${esc(JSON.stringify(readouts))}">
         <defs>
-          <linearGradient id="weightGradient" x1="0" y1="0" x2="0" y2="1">
+          <linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.35"/>
             <stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/>
           </linearGradient>
         </defs>
         ${gridLines}
-        <polygon points="${areaPts}" fill="url(#weightGradient)" stroke="none"/>
+        <polygon points="${areaPts}" fill="url(#areaGradient)" stroke="none"/>
         <polyline points="${linePts}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-        <circle cx="${xAt(points.length - 1)}" cy="${yAt(last.weight)}" r="3.5" fill="var(--accent)"/>
-        ${goalLine}
+        <circle cx="${xAt(points.length - 1)}" cy="${yAt(last.value)}" r="3.5" fill="var(--accent)"/>
+        ${referenceLine}
+        ${markerHTML}
+        <line data-scrub-guide x1="0" y1="${padTop - 6}" x2="0" y2="${h - padBottom}" stroke="var(--text-dim)" stroke-width="1" stroke-dasharray="3 3" style="display:none"/>
+        <circle data-scrub-dot cx="0" cy="0" r="5" fill="var(--accent)" stroke="var(--bg)" stroke-width="2" style="display:none"/>
         ${xLabels}
       </svg>
     `;
@@ -1571,7 +1665,7 @@
 
   function viewWeight() {
     const fullHistory = state.bodyweight;
-    const filtered = filterBodyweightRange(fullHistory, state.weightRange);
+    const filtered = filterDateRange(fullHistory, state.weightRange);
     const todayEntry = fullHistory.find((e) => e.date === todayStr());
     const latest = fullHistory[fullHistory.length - 1];
     const rangeFirst = filtered[0];
@@ -1598,8 +1692,12 @@
               <button class="btn sm" id="save-weight-goal">Save</button>
             </div>
           </div>
-          ${rangeSelectorHTML(state.weightRange)}
-          ${filtered.length > 1 ? weightAreaChart(filtered, state.weightGoal) :
+          ${rangeSelectorHTML(state.weightRange, "weightRange")}
+          ${filtered.length > 1 ? areaChart(filtered.map((e) => ({ date: e.date, value: e.weight })), {
+              format: (v) => v.toFixed(1),
+              readouts: filtered.map((e) => `${fmtDate(e.date)} · ${e.weight}kg`),
+              reference: state.weightGoal ? { value: state.weightGoal, label: `Goal · ${state.weightGoal}kg` } : null
+            }) :
             filtered.length === 1 ? `<div class="empty">Only one weigh-in in this range. Widen the range or log again tomorrow.</div>` :
             `<div class="empty">No weigh-ins in this range yet.</div>`}
         </div>
@@ -1887,10 +1985,18 @@
       if (state.openRecordGroups[mg]) delete state.openRecordGroups[mg]; else state.openRecordGroups[mg] = true;
       render(); return;
     }
-    if (t.closest("[data-view-exercise]")) { state.progressDetail = t.closest("[data-view-exercise]").dataset.viewExercise; render(); return; }
+    if (t.closest("[data-view-exercise]")) {
+      state.progressDetail = t.closest("[data-view-exercise]").dataset.viewExercise;
+      state.exerciseVariation = null; // variation names are per exercise
+      render(); return;
+    }
 
-    const rangeBtn = t.closest("[data-weight-range]");
-    if (rangeBtn) { state.weightRange = rangeBtn.dataset.weightRange; render(); return; }
+    const rangeBtn = t.closest("[data-range]");
+    if (rangeBtn) { state[rangeBtn.dataset.rangeState] = rangeBtn.dataset.range; render(); return; }
+
+    if (t.closest("[data-variation-all]")) { state.exerciseVariation = null; render(); return; }
+    const variationBtn = t.closest("[data-variation]");
+    if (variationBtn) { state.exerciseVariation = variationBtn.dataset.variation; render(); return; }
 
     const restBtn = t.closest("[data-rest]");
     if (restBtn) { startRest(Number(restBtn.dataset.rest)); return; }
@@ -2230,6 +2336,45 @@
   }
 
   // input listeners (change, not click) - set weight/reps and file import
+  // Chart scrubbing: press on an area chart and drag along it to read the
+  // nearest point's date and value; release to go back to the latest point.
+  // Pointer capture keeps the drag alive when the finger leaves the chart,
+  // and nothing re-renders, so it stays smooth on a phone.
+  const chartAt = (e) => (e.target.closest ? e.target.closest("svg[data-chart-xs]") : null);
+  const chartReadout = (svg) => svg.parentElement.querySelector("[data-chart-readout]");
+
+  function scrubChart(svg, clientX) {
+    const xs = JSON.parse(svg.dataset.chartXs), ys = JSON.parse(svg.dataset.chartYs), readouts = JSON.parse(svg.dataset.chartReadouts);
+    const rect = svg.getBoundingClientRect();
+    const vx = ((clientX - rect.left) / rect.width) * svg.viewBox.baseVal.width;
+    let i = 0;
+    for (let k = 1; k < xs.length; k++) if (Math.abs(xs[k] - vx) < Math.abs(xs[i] - vx)) i = k;
+    const guide = svg.querySelector("[data-scrub-guide]"), dot = svg.querySelector("[data-scrub-dot]");
+    guide.setAttribute("x1", xs[i]); guide.setAttribute("x2", xs[i]); guide.style.display = "";
+    dot.setAttribute("cx", xs[i]); dot.setAttribute("cy", ys[i]); dot.style.display = "";
+    chartReadout(svg).textContent = readouts[i];
+  }
+  function endScrub(svg) {
+    svg.querySelector("[data-scrub-guide]").style.display = "none";
+    svg.querySelector("[data-scrub-dot]").style.display = "none";
+    const readout = chartReadout(svg);
+    readout.textContent = readout.dataset.default;
+  }
+  appEl.addEventListener("pointerdown", (e) => {
+    const svg = chartAt(e);
+    if (!svg) return;
+    e.preventDefault(); // no text selection or image drag while scrubbing
+    try { svg.setPointerCapture(e.pointerId); } catch (err) { /* a tap that already ended; the press still read its point */ }
+    scrubChart(svg, e.clientX);
+  });
+  appEl.addEventListener("pointermove", (e) => {
+    const svg = chartAt(e);
+    if (svg && (e.buttons & 1)) scrubChart(svg, e.clientX); // finger down or left button held
+  });
+  for (const type of ["pointerup", "pointercancel"]) {
+    appEl.addEventListener(type, (e) => { const svg = chartAt(e); if (svg) endScrub(svg); });
+  }
+
   appEl.addEventListener("change", async (e) => {
     try { await handleChange(e); } catch (err) { console.error(err); toast("Something went wrong. Try again, or reload the app"); }
   });

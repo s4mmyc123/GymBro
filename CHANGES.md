@@ -513,3 +513,30 @@ back from it. The This week banner and the Muscle rotation card are gone
 from Progress; the rotation list lives on Home only, so the "Muscle
 detail" link on Home's rotation card (which pointed at the removed copy)
 is gone too. Service worker cache bumped to v18.
+
+## 27. Exercise detail rebuilt like the Weight tab  (16 Sep 2026)
+
+Tapping a lift in Records now opens a screen laid out like Body weight.
+The headline is your most recent session's top set with its estimated
+1RM and date, a pill shows the change in estimated 1RM across the
+selected range, and a line underneath names your all-time best. The same
+1W to All range chips as the Weight tab follow (defaulting to 3 months,
+since lifts are logged less often than weigh-ins), then an area chart on
+a real time axis: estimated 1RM per training day for lifts, or the
+metric's own number (minutes, km, reps) for everything else, with the
+best point ringed. A lift with more than one variation gets an extra row
+of chips (All, Standard, Rope, ...) above the ranges; a lift with one
+variation never sees them. The old sparklines, the "since first log"
+percentage, the best-per-variation list and the per-session history list
+are gone. In their place a By month card gives, per calendar month, how
+many days the lift was trained, the average estimated 1RM, and the best
+set.
+
+Both charts can be scrubbed: press anywhere on the chart and drag along
+it, and a dashed guide snaps to the nearest training day (or weigh-in)
+while the line above the chart shows that day's date and numbers; let go
+and it returns to the latest. Vertical swipes still scroll the page. The
+bottom axis no longer labels individual points; it shows evenly spaced
+date bins instead, choosing days, Mondays, months, quarters or years to
+suit the span. The Weight tab keeps its history list, since that is where
+weigh-ins are deleted. Service worker cache bumped to v19.
