@@ -27,7 +27,10 @@ everything) is what we are leaving.
 - **Air is the luxury.** More space between things than feels necessary
   on a first pass. If a screen looks empty, it is probably right.
 - **One accent, rarely.** The accent appears on the single primary action
-  and on your data line. Nothing else is orange.
+  and on your data line. Nothing else carries it.
+- **Themes, not skins.** The user chooses between a few palettes in
+  Settings. Each is the same nine tokens with different values; nothing
+  else changes. See section 5.
 
 The simplicity rules in section 1 are unchanged. Luxury never adds a
 control; it removes one.
@@ -91,29 +94,47 @@ with the chart.
   height, never by making text bigger.
 - Respect the safe areas top and bottom (already done in the header and nav).
 
-## 5. Colour
+## 5. Colour and themes
 
-Warm near-black, off-white, one copper accent, three muted status colours.
-Measured on the background:
+The user picks a theme in Settings. A theme is nothing more than a set of
+values for the nine colour tokens below; layout, type and components never
+change between themes, and no code outside `:root` knows which theme is
+active. That is the whole point of the token rule.
 
-| Token    | Hex     | Role                                | Contrast |
-|----------|---------|-------------------------------------|----------|
-| bg       | #0e0d0c | the screen                          |          |
-| surface  | #161514 | bottom sheet, inputs                |          |
-| hairline | #2a2826 | dividers                            |          |
-| text     | #efeae2 | primary text                        | 16.2     |
-| text-dim | #9a948b | secondary text, labels              | 6.5      |
-| accent   | #e08a3c | primary action, your data line      | 7.3      |
-| good     | #7cc49a | improved, on track                  | 9.5      |
-| warn     | #d9b256 | due                                 | 9.7      |
-| bad      | #e07070 | overdue, worse, delete              | 6.2      |
+Tokens every theme must define: bg, surface, hairline, text, text-dim,
+accent, good, warn, bad. Text on the accent is always bg.
 
-- Text on the accent is bg, not white.
+Three themes ship. Graphite is the default. Measured contrast on each
+theme's bg is in brackets.
+
+| Token    | Graphite (warm dark) | Onyx (true black)   | Ivory (light)        |
+|----------|----------------------|---------------------|----------------------|
+| bg       | #0e0d0c              | #000000             | #f4f1ec              |
+| surface  | #161514              | #121212             | #ffffff              |
+| hairline | #2a2826              | #262626             | #dcd6cc              |
+| text     | #efeae2 (16.2)       | #f2f2f2 (18.8)      | #1a1816 (15.7)       |
+| text-dim | #9a948b (6.5)        | #9b9b9b (7.6)       | #6b655d (5.1)        |
+| accent   | #e08a3c copper (7.3) | #d9d4c7 platinum (14.2) | #a8561a copper (4.7) |
+| good     | #7cc49a (9.5)        | #8fcfa6 (11.6)      | #2a7348 (4.9)        |
+| warn     | #d9b256 (9.7)        | #dcc26a (12.0)      | #7a5e0e (4.9)        |
+| bad      | #e07070 (6.2)        | #e27b7b (7.4)       | #b4373a (5.3)        |
+
+Rules that hold in every theme:
+
 - Status colours are used on text and thin bars only, never as fills or
   backgrounds. Anything new must stay above 4.5:1 for text and 3:1 for
-  icons and chart lines.
-- Dark only. `color-scheme: dark` stays. A light theme is a separate
-  project, not a side effect of the overhaul.
+  icons and chart lines, in every theme, not just the default.
+- The accent appears on the primary action and your data line only.
+- Adding a theme means adding one block of nine values and a swatch in the
+  picker, nothing else. If a theme needs a code change elsewhere, the code
+  is wrong, not the theme.
+- The choice is saved as a setting, applied as `data-theme` on the root
+  element before first paint so there is no flash, mirrored into the
+  `theme-color` meta tag so the phone's status bar matches, and included
+  in backups like the weight goal. `color-scheme` follows the theme so
+  native controls match.
+- Every UI change is screenshotted in all three themes. Ivory is the one
+  that finds mistakes: any hard-coded dark value shows up there at once.
 
 ## 6. Components
 
@@ -141,6 +162,8 @@ added here first, with a name.
 - Toast: one line, disappears on its own.
 - Bottom nav: hairline above, text labels, active one in text colour with a
   1px underline, inactive in text-dim.
+- Theme picker (Settings): one row of square swatches, one per theme, the
+  chosen one outlined in text colour. Tapping applies it immediately.
 
 ## 7. Motion
 
@@ -175,7 +198,8 @@ added here first, with a name.
 1. Say which screen and which rule above the change serves.
 2. Mock it before coding it when it changes layout, using the design
    canvas skill, and look at it at phone width.
-3. Build it, then screenshot before and after at 375px wide and compare.
+3. Build it, then screenshot before and after at 375px wide, in every
+   theme, and compare.
 4. Check: no new hex values, no new font sizes, no new inline styles, no
    new component that is not in section 6, no rounded corner, no badge.
 5. One screen per commit, a CHANGES.md entry, and a service worker cache
