@@ -662,26 +662,6 @@
     return `<span style="text-align:right;flex-shrink:0"><span class="pill good">${b.weight}kg × ${b.reps}</span><div class="small muted" style="margin-top:3px">~${Math.round(b.orm)}kg 1RM</div></span>`;
   }
 
-  // Best set (by est 1RM) per exercise across all sessions. Only sets with
-  // both a weight and a rep count qualify - time/distance/reps-only sets
-  // would otherwise register as a 0kg "best" and show up under Lift
-  // progress (and count as a PR the first time they're logged).
-  function bestSetsByExercise(sessions) {
-    const best = {};
-    for (const s of chronological(sessions)) {
-      for (const entry of s.entries) {
-        for (const set of entry.sets) {
-          if (!isLiftSet(set)) continue;
-          const orm = estOneRM(set.weight, set.reps);
-          if (!best[entry.exerciseId] || orm > best[entry.exerciseId].orm) {
-            best[entry.exerciseId] = { orm, weight: set.weight, reps: set.reps, date: s.date };
-          }
-        }
-      }
-    }
-    return best;
-  }
-
   // Chronological history (weight/reps/1RM/volume) for one exercise: one row
   // per calendar *day*, taking the best set across every entry and session
   // of that exercise on it (an exercise can appear twice - two variations,
@@ -736,30 +716,6 @@
   function exerciseDisplayName(exerciseId, snapshotName) {
     const ex = state.exercises.find((e) => e.id === exerciseId);
     return ex ? ex.name : snapshotName;
-  }
-
-  // Personal Records overview: one row per exercise+variation, most recent
-  // PR first. Sessions are walked oldest-first with a strict ">" so the date
-  // recorded is the day the record was *first* set, not a later tie.
-  function recentPRs(sessions) {
-    const bestSoFar = {};
-    for (const s of chronological(sessions)) {
-      for (const entry of s.entries) {
-        const key = variationKey(entry.exerciseId, entry.variation);
-        for (const set of entry.sets) {
-          if (!isLiftSet(set)) continue;
-          const orm = estOneRM(set.weight, set.reps);
-          if (!bestSoFar[key] || orm > bestSoFar[key].orm) {
-            bestSoFar[key] = {
-              orm, weight: set.weight, reps: set.reps, date: s.date,
-              exerciseId: entry.exerciseId, variation: entry.variation || "",
-              exerciseName: exerciseDisplayName(entry.exerciseId, entry.exerciseName)
-            };
-          }
-        }
-      }
-    }
-    return Object.values(bestSoFar).sort((a, b) => b.date.localeCompare(a.date));
   }
 
   // -----------------------------------------------------------------------
@@ -917,6 +873,7 @@
       chart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V9M12 19V5M20 19v-7"/></svg>',
       gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>',
       back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>',
+      chevron: '<svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>',
       scale: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M12 8.5v3.2l2.6 1.8"/></svg>'
     };
     return icons[name] || "";
@@ -945,6 +902,7 @@
     weightRange: "2w",   // defaults to 2 weeks, per WEIGHT_RANGES above
     activeSession: null,  // in-memory in-progress workout
     progressDetail: null, // exerciseId being viewed in detail
+    openRecordGroups: {}, // Progress > Records: muscle group name -> true while expanded
     storage: null         // { usage, quota, persisted } from navigator.storage, or null if unsupported
   };
 
@@ -1107,7 +1065,7 @@
         </div>
 
         <div class="card">
-          <h2>Muscle rotation <span class="link" data-nav="progress">Muscle detail →</span></h2>
+          <h2>Muscle rotation</h2>
           ${rotationListHTML(rotation)}
         </div>
 
@@ -1303,72 +1261,84 @@
 
   function viewProgress() {
     if (state.progressDetail) return viewProgressDetail(state.progressDetail);
-    const best = bestSetsByExercise(state.sessions);
-    const used = state.exercises.filter((ex) => best[ex.id]);
-    const prs = recentPRs(state.sessions).slice(0, 5);
-
-    // This week snapshot
-    const now = new Date();
-    const weekAgo = new Date(now); weekAgo.setDate(weekAgo.getDate() - 6);
-    const weekAgoStr = dateKey(weekAgo);
-    const today = todayStr();
-    const thisWeekSessions = state.sessions.filter((s) => s.date >= weekAgoStr && s.date <= today);
-    const setsThisWeek = thisWeekSessions.reduce((a, s) => a + s.entries.reduce((b, e) => b + e.sets.length, 0), 0);
-    const currentGroups = new Set(state.muscleGroups.map((mg) => mg.name));
-    const musclesThisWeek = new Set(thisWeekSessions.flatMap((s) => s.entries.flatMap((e) => (e.muscleGroups || []).filter((mg) => currentGroups.has(mg))))).size;
-
     return `
       <div class="view">
-        <div class="card">
-          <h2>This week</h2>
-          <div class="grid-3">
-            <div><div style="font-size:20px;font-weight:800">${thisWeekSessions.length}</div><div class="small muted">workouts</div></div>
-            <div><div style="font-size:20px;font-weight:800">${setsThisWeek}</div><div class="small muted">sets logged</div></div>
-            <div><div style="font-size:20px;font-weight:800">${musclesThisWeek}</div><div class="small muted">muscle groups</div></div>
-          </div>
-        </div>
-
         <div class="card">
           ${strengthIndexCard()}
         </div>
 
         <div class="card">
-          <h2>Muscle rotation</h2>
-          ${viewRotationFullInner()}
-        </div>
-
-        <div class="card">
-          <h2>Personal records</h2>
-          ${prs.length === 0 ? `<div class="empty">No PRs yet. Log a session to start tracking.</div>` :
-            prs.map((pr) => `
-              <div class="row list-tap" data-view-exercise="${pr.exerciseId}">
-                <span>${esc(pr.exerciseName)}${pr.variation ? ` <span class="variation-tag">${esc(pr.variation)}</span>` : ""}<div class="small muted">${fmtDate(pr.date)}</div></span>
-                ${bestPillHTML(pr)}
-              </div>
-            `).join("")}
-        </div>
-
-        <div class="card">
-          <h2>Lift progress</h2>
-          ${used.length === 0 ? `<div class="empty">Log a session to start tracking lifts.</div>` :
-            used.sort((a, b) => a.name.localeCompare(b.name)).map((ex) => `
-              <div class="row list-tap" data-view-exercise="${ex.id}">
-                <span>${esc(ex.name)}</span>
-                ${bestPillHTML(best[ex.id])}
-              </div>
-            `).join("")}
+          <h2>Records</h2>
+          ${recordGroupsHTML()}
         </div>
       </div>
     `;
   }
 
+  // Progress > Records: every lift with a best set, grouped under its first
+  // muscle group and collapsed by default. Replaces the separate "Personal
+  // records" and "Lift progress" cards, which listed the same lifts twice.
+  // Records are kept per variation (a rope and a straight-bar pushdown are
+  // different lifts): the row shows the exercise's overall best, tagged with
+  // its variation, and the date it was first set.
+
+  function recordGroupsHTML() {
+    const byVariation = Object.values(bestSetsByVariation(state.sessions));
+    if (byVariation.length === 0) return `<div class="empty">Log a session to start tracking lifts and PRs.</div>`;
+
+    // Fold variations into one row per exercise
+    const lifts = {};
+    for (const b of byVariation) {
+      let lift = lifts[b.exerciseId];
+      if (!lift) {
+        const ex = state.exercises.find((e) => e.id === b.exerciseId) || exerciseStubFromSessions(b.exerciseId);
+        if (!ex) continue;
+        lift = lifts[b.exerciseId] = { ex, best: b, variations: 0 };
+      }
+      lift.variations++;
+      if (b.orm > lift.best.orm) lift.best = b;
+    }
+
+    const groups = {};
+    for (const lift of Object.values(lifts)) {
+      const mg = (lift.ex.muscleGroups && lift.ex.muscleGroups[0]) || "Other";
+      (groups[mg] = groups[mg] || []).push(lift);
+    }
+
+    // Library order first (Settings lets you arrange groups), then anything
+    // tagged with a group that no longer exists, alphabetically.
+    const order = state.muscleGroups.map((mg) => mg.name);
+    const names = Object.keys(groups).sort((a, b) => {
+      const ia = order.indexOf(a), ib = order.indexOf(b);
+      if (ia !== -1 && ib !== -1) return ia - ib;
+      if (ia !== -1) return -1;
+      if (ib !== -1) return 1;
+      return a.localeCompare(b);
+    });
+
+    return names.map((mg) => {
+      const items = groups[mg].sort((a, b) => a.ex.name.localeCompare(b.ex.name));
+      const open = !!state.openRecordGroups[mg];
+      return `
+        <div class="record-group${open ? " open" : ""}">
+          <div class="row list-tap record-group-head" role="button" aria-expanded="${open}" data-toggle-record-group="${esc(mg)}">
+            <span>${esc(mg)} <span class="small muted">· ${items.length} ${items.length === 1 ? "lift" : "lifts"}</span></span>
+            <span class="record-group-side">${icon("chevron")}</span>
+          </div>
+          ${open ? items.map((i) => `
+            <div class="row list-tap record-row" data-view-exercise="${i.ex.id}">
+              <span>${esc(i.ex.name)}${i.best.variation ? ` <span class="variation-tag">${esc(i.best.variation)}</span>` : ""}<div class="small muted">${fmtDate(i.best.date)}${i.variations > 1 ? ` · ${i.variations} variations` : ""}</div></span>
+              ${bestPillHTML(i.best)}
+            </div>
+          `).join("") : ""}
+        </div>
+      `;
+    }).join("");
+  }
+
   function rotationListHTML(rotation) {
     if (rotation.length === 0) return `<div class="empty">No muscle groups yet. Add some in Settings.</div>`;
     return rotation.map(rotationItemHTML).join("");
-  }
-
-  function viewRotationFullInner() {
-    return rotationListHTML(computeRotation(state.sessions));
   }
 
   // For an exercise that's been deleted from the library, rebuild enough of
@@ -1910,6 +1880,12 @@
     if (navBtn) { navTo(navBtn.dataset.nav); return; }
 
     if (t.closest("[data-back-progress]")) { state.progressDetail = null; render(); return; }
+    const groupHead = t.closest("[data-toggle-record-group]");
+    if (groupHead) {
+      const mg = groupHead.dataset.toggleRecordGroup;
+      if (state.openRecordGroups[mg]) delete state.openRecordGroups[mg]; else state.openRecordGroups[mg] = true;
+      render(); return;
+    }
     if (t.closest("[data-view-exercise]")) { state.progressDetail = t.closest("[data-view-exercise]").dataset.viewExercise; render(); return; }
 
     const rangeBtn = t.closest("[data-weight-range]");

@@ -230,12 +230,6 @@ label {
 
 .field { margin-bottom: 10px; }
 
-.grid-3 {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-}
-
 /* Bottom nav */
 .nav {
   position: fixed;
@@ -457,6 +451,20 @@ label {
   cursor: pointer;
 }
 .list-tap:active { opacity: 0.7; }
+
+/* Progress > Records: collapsible muscle-group sections */
+.record-group + .record-group { border-top: 1px solid var(--border); }
+.record-group-head { padding: 10px 0; font-weight: 700; }
+.record-group-side { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.record-group-head .chevron {
+  width: 18px; height: 18px; color: var(--text-dim);
+  transition: transform 0.15s ease;
+}
+.record-group.open .record-group-head .chevron { transform: rotate(90deg); }
+.record-row { padding: 8px 0 8px 12px; }
+.record-row + .record-row { border-top: 1px solid var(--border); }
+.record-group.open .record-group-head + .record-row { border-top: 1px solid var(--border); }
+.record-group .record-row:last-child { padding-bottom: 12px; }
 
 a, a:visited { color: var(--accent); }
 

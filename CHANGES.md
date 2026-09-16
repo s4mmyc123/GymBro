@@ -497,3 +497,19 @@ custom-fit-backup-<date>.json. Old backups still import; the check is on
 the file's contents, not its name. Installed phones keep showing the old
 name under the icon until the app is removed from the home screen and
 added again, the same as the icon.
+
+## 26. Progress tab simplified  (16 Sep 2026)
+
+The Progress tab is down to two cards. Strength Index is unchanged. The
+old Personal records and Lift progress cards, which listed the same lifts
+twice, are replaced by one Records card: every lift with a best set,
+grouped under its first muscle group in the order your groups appear in
+Settings, with every group collapsed until you tap it. Each row shows the
+lift's overall best set and estimated 1RM, the date that best was first
+set, its variation when the best came from a named one, and a count when
+more than one variation has history. Tapping a row still opens the
+exercise detail screen, and the groups you opened stay open when you come
+back from it. The This week banner and the Muscle rotation card are gone
+from Progress; the rotation list lives on Home only, so the "Muscle
+detail" link on Home's rotation card (which pointed at the removed copy)
+is gone too. Service worker cache bumped to v18.
