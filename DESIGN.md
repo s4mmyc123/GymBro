@@ -7,12 +7,13 @@ number, that number came from measuring the app as it stood on 16 Sep 2026.
 The app's job: log a workout in the gym with one thumb, then answer "am I
 getting stronger?" in one glance. Every rule below serves that.
 
-## 0. Direction: quiet luxury
+## 0. Direction: quiet modern
 
-The look to build toward. Sleek and modern, and it should feel expensive
-the way a good watch does: through precision, material and restraint, not
-through ornament. The old look (rounded cards, coloured badges on
-everything) is what we are leaving.
+The look to build toward. Sleek, modern and simple: precision, material
+and restraint rather than ornament. The old look (rounded cards, coloured
+badges on everything) is what we are leaving. Five candidate directions
+are mocked up in `mockups/` (open `mockups/index.html`); once one is
+chosen, its tokens replace the tables below.
 
 - **Flat, not boxed.** Content sits directly on the screen in sections
   divided by hairlines and space. No card boxes. The only raised surface
@@ -24,7 +25,7 @@ everything) is what we are leaving.
 - **Status is text, not badges.** A change reads "+33%" in green text
   beside its label, not inside a coloured pill. Rotation status is a thin
   bar and a plain word.
-- **Air is the luxury.** More space between things than feels necessary
+- **Air is the point.** More space between things than feels necessary
   on a first pass. If a screen looks empty, it is probably right.
 - **One accent, rarely.** The accent appears on the single primary action
   and on your data line. Nothing else carries it.
@@ -32,7 +33,7 @@ everything) is what we are leaving.
   Settings. Each is the same nine tokens with different values; nothing
   else changes. See section 5.
 
-The simplicity rules in section 1 are unchanged. Luxury never adds a
+The simplicity rules in section 1 are unchanged. Modern never adds a
 control; it removes one.
 
 ## 1. Simplicity comes first

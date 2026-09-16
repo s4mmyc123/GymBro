@@ -28,3 +28,6 @@ exports/
 
 # Local-only planning notes
 CHANGES-BACKLOG.md
+
+# Design mockups: local only until a direction is chosen
+mockups/
