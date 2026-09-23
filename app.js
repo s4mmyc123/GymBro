@@ -1487,7 +1487,7 @@
       <div class="bw-row">
         <span class="hero-num">${latest ? `${latest.weight}<span class="unit">kg</span>` : `<span class="muted" style="font-size:16px">No entry</span>`}</span>
         <span class="bw-log">
-          <input type="number" inputmode="decimal" step="0.1" id="bodyweight-input" placeholder="kg" value="${todayEntry ? todayEntry.weight : ""}" />
+          <span class="bw-field"><input type="number" inputmode="decimal" step="0.1" id="bodyweight-input" placeholder="0.0" value="${todayEntry ? todayEntry.weight : ""}" /><span class="unit">kg</span></span>
           <button class="btn primary sm" id="save-bodyweight">${todayEntry ? "Update" : "Log"}</button>
         </span>
       </div>

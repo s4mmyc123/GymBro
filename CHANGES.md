@@ -593,3 +593,11 @@ possible from the app (logging on the same day still replaces that day's
 entry); a backup export and import is the way to remove one. The phone
 status bar colour follows the new background. Service worker cache
 bumped to v22.
+
+## 31. Home weight field and header spacing  (23 Sep 2026)
+
+The quick-log field on Home is sized to the number it holds: 64px wide,
+set at 24px in the same light style as the weight beside it, with a small
+KG after it and no spinner arrows. Its placeholder is 0.0. The screen
+title sits 10px lower so it clears the phone's status bar, which was
+overlapping it. Service worker cache bumped to v23.

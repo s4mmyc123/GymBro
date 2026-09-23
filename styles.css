@@ -85,7 +85,7 @@ html, body {
   top: 0;
   z-index: 5;
   background: var(--bg);
-  padding: calc(12px + env(safe-area-inset-top)) 20px 14px;
+  padding: calc(22px + env(safe-area-inset-top)) 20px 14px;
   border-bottom: 1px solid var(--hairline);
   display: flex;
   justify-content: space-between;
@@ -546,10 +546,27 @@ a, a:visited { color: var(--accent); }
 .week-dots .wd-label { font-size: 10px; font-weight: 600; color: var(--text-dim); }
 .week-dots .wd.today .wd-label { color: var(--text); }
 
-/* Body weight quick log (Home) */
+/* Body weight quick log (Home): the field is sized to a number like 79.6
+   and set in the same light display style as the number beside it */
 .bw-row { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; }
-.bw-row .bw-log { display: flex; align-items: center; gap: 10px; }
-.bw-row .bw-log input { width: 72px; text-align: right; }
+.bw-row .bw-log { display: flex; align-items: flex-end; gap: 10px; }
+.bw-row .bw-field { display: flex; align-items: baseline; gap: 4px; border-bottom: 1px solid var(--hairline); }
+.bw-row .bw-field input {
+  width: 64px;
+  border: none;
+  padding: 2px 0 4px;
+  text-align: right;
+  font-family: var(--font-display);
+  font-weight: 300;
+  font-size: 24px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  -moz-appearance: textfield;
+}
+.bw-row .bw-field input::-webkit-outer-spin-button,
+.bw-row .bw-field input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.bw-row .bw-field:focus-within { border-bottom-color: var(--accent); }
+.bw-row .bw-field .unit { font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; padding-bottom: 5px; }
 
 /* Last-session + personal-best stat strip on each exercise while logging */
 .ex-stats {
