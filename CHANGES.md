@@ -560,3 +560,36 @@ tapping it shows the same text under the title, tapping again hides it.
 The button turns orange while its text is showing. The About line in
 Settings and the storage warning are not explanations and stay as they
 were. Service worker cache bumped to v21.
+
+## 30. New look, first pass: Graphite theme and the Home screen  (23 Sep 2026)
+
+The visual overhaul described in DESIGN.md begins. This pass changes the
+shared pieces every screen uses and rebuilds Home; the other tabs keep
+their layouts for now and pick up the new materials automatically.
+
+What changed everywhere: the palette is Graphite (warm near-black, chalk
+text, one copper accent, muted green, yellow and red for status). Cards
+are gone; content sits in flat sections divided by hairlines. Corners are
+square, with a 2px radius on buttons and inputs. Inputs are underlines.
+Status words (Today, 2 days, Never, best sets) are plain coloured text
+instead of badges. The screen header is a light wordmark with the date
+under it and a placeholder box top right for a logo. The bottom bar keeps
+its five icons, now with small uppercase labels and a short line under
+the active tab. Section titles are small uppercase labels. Entrance
+animations are gone.
+
+Home: This week shows seven small squares with the day count in the
+section title; Start workout stays green, as does Start new session on
+the Train tab: the start buttons are the only green buttons in the app. Body weight is one row: a large light number with the unit
+beside it, and the log field and button on the right. Muscle rotation
+rows show seven ticks, one lit per day since the group was last trained,
+coloured by urgency; a group never trained lights all seven in red. An
+"i" button explains the ticks; the status word is now "4 days" rather
+than "4 days ago". The Recent sessions section is removed.
+
+Weight: the History list under the chart is removed; the chart's scrub
+readout shows any day's weigh-in. Deleting a past weigh-in is no longer
+possible from the app (logging on the same day still replaces that day's
+entry); a backup export and import is the way to remove one. The phone
+status bar colour follows the new background. Service worker cache
+bumped to v22.

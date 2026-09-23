@@ -11,9 +11,10 @@ getting stronger?" in one glance. Every rule below serves that.
 
 The look to build toward. Sleek, modern and simple: precision, material
 and restraint rather than ornament. The old look (rounded cards, coloured
-badges on everything) is what we are leaving. Five candidate directions
-are mocked up in `mockups/` (open `mockups/index.html`); once one is
-chosen, its tokens replace the tables below.
+badges on everything) is what we are leaving. Decided on 23 Sep 2026:
+Graphite is the palette, the Home structure is `mockups/13-home-structure.html`
+(wordmark title with the date under it and a logo placeholder top right;
+This week, Body weight, Muscle rotation with day ticks; no history list).
 
 - **Flat, not boxed.** Content sits directly on the screen in sections
   divided by hairlines and space. No card boxes. The only raised surface
@@ -28,7 +29,10 @@ chosen, its tokens replace the tables below.
 - **Air is the point.** More space between things than feels necessary
   on a first pass. If a screen looks empty, it is probably right.
 - **One accent, rarely.** The accent appears on the single primary action
-  and on your data line. Nothing else carries it.
+  and on your data line. Nothing else carries it. The one exception is
+  the start buttons (Start workout and Resume workout on Home, Start new
+  session on Train), which stay green: starting a workout is the app's
+  main verb and has always been green.
 - **Themes, not skins.** The user chooses between a few palettes in
   Settings. Each is the same nine tokens with different values; nothing
   else changes. See section 5.
@@ -161,8 +165,14 @@ added here first, with a name.
 - Bottom sheet: the only surface, square corners, slides up.
 - Empty state: one sentence saying what to do, never how it feels.
 - Toast: one line, disappears on its own.
-- Bottom nav: hairline above, text labels, active one in text colour with a
-  1px underline, inactive in text-dim.
+- Bottom nav: hairline above, the five icons with small uppercase labels,
+  active one in the accent with a short 2px line under it, inactive in
+  text-dim.
+- Screen header: the screen name as a light 28px wordmark, the date (and
+  on Home the greeting) as a label under it, a 40px logo box top right.
+- Rotation row (Home): name with its weekly target under it, seven ticks
+  (one lit per day since last trained, all seven for never), and the
+  status word in its colour.
 - Theme picker (Settings): one row of square swatches, one per theme, the
   chosen one outlined in text colour. Tapping applies it immediately.
 

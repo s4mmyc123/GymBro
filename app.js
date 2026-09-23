@@ -395,7 +395,6 @@
       // Body weight: one record per day, saving again the same day replaces it
       listBodyweight: () => list("bodyweight", tidyBodyweight, byDate),
       setBodyweight: (date, weight) => put("bodyweight", { date, weight, loggedAt: Date.now() }),
-      deleteBodyweight: (date) => del("bodyweight", date),
 
       // Settings: small named values (see the key list in the header)
       getSetting, setSetting,
@@ -619,21 +618,20 @@
     return "good";
   }
 
-  const ROTATION_STATUS_COLORS = { good: "var(--good)", warn: "var(--warn)", bad: "var(--bad)" };
-
-  // Shared row markup for the three places rotation renders (Home, full
-  // Muscle rotation card, Progress tab's inline copy). Bar color reflects
-  // training urgency relative to each muscle's own target frequency - not
-  // the muscle's identity - so green/orange/red always means
-  // recently-done/upcoming/overdue.
+  // Rotation row (Home): seven ticks, one lit per day since the group was
+  // last trained, coloured by urgency relative to its own target frequency
+  // (not by the muscle's identity), so green/yellow/red always means
+  // recently done / coming up / overdue. Never trained lights all seven.
+  const ROTATION_TICKS = 7;
   function rotationItemHTML(r) {
-    const pct = r.overdueRatio === Infinity ? 100 : Math.min(100, Math.round((r.overdueRatio / 1.5) * 100));
     const status = rotationColor(r.overdueRatio);
+    const lit = r.daysSince === Infinity ? ROTATION_TICKS : Math.min(ROTATION_TICKS, r.daysSince);
+    const ticks = Array.from({ length: ROTATION_TICKS }, (_, i) => `<i class="${i < lit ? status : ""}"></i>`).join("");
     return `
-      <div class="rotation-item" style="margin-bottom:10px">
-        <span class="small" style="width:78px">${esc(r.muscle)}<div class="small muted" style="font-weight:400">${r.frequency}x/wk</div></span>
-        <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${ROTATION_STATUS_COLORS[status]}"></div></div>
-        <span class="pill ${status}">${r.daysSince === Infinity ? "Never" : fmtDaysAgo(r.daysSince)}</span>
+      <div class="rotation-item">
+        <span class="rot-name">${esc(r.muscle)}<small>${r.frequency}×/wk</small></span>
+        <span class="ticks">${ticks}</span>
+        <span class="pill ${status} rot-status">${r.daysSince === Infinity ? "Never" : r.daysSince === 0 ? "Today" : `${r.daysSince} day${r.daysSince === 1 ? "" : "s"}`}</span>
       </div>
     `;
   }
@@ -1014,8 +1012,8 @@
   // -----------------------------------------------------------------------
   // Views
   // -----------------------------------------------------------------------
-  // Last-7-days consistency strip: one dot per day, lit if a session was logged
-  function weekDotsHTML() {
+  // The last seven days, oldest first, with whether a session was logged
+  function weekDays() {
     const days = [];
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
@@ -1027,33 +1025,28 @@
         isToday: i === 0
       });
     }
-    const count = days.filter((d) => d.trained).length;
-    return `
-      <div class="week-dots">
-        ${days.map((d) => `<div class="wd${d.trained ? " on" : ""}${d.isToday ? " today" : ""}"><span class="dot"></span><span class="wd-label">${d.label}</span></div>`).join("")}
-        <span class="small muted" style="margin-left:auto">${count} day${count === 1 ? "" : "s"} this week</span>
-      </div>`;
+    return days;
   }
 
-  function sessionDurationPill(s) {
-    if (!s.endedAt || !s.startedAt) return "";
-    const mins = Math.round((s.endedAt - s.startedAt) / 60000);
-    if (mins < 1 || mins > 600) return "";
-    return `<span class="pill">${mins} min</span>`;
+  function weekDotsHTML(days) {
+    return `<div class="week-dots">
+        ${days.map((d) => `<div class="wd${d.trained ? " on" : ""}${d.isToday ? " today" : ""}"><span class="dot"></span><span class="wd-label">${d.label}</span></div>`).join("")}
+      </div>`;
   }
 
   function viewHome() {
     const rotation = computeRotation(state.sessions);
-    const recent = state.sessions.slice(0, 3);
+    const week = weekDays();
+    const trained = week.filter((d) => d.trained).length;
 
     return `
       <div class="view">
         <div class="card">
-          <h2>This week</h2>
-          ${weekDotsHTML()}
+          <h2>This week <span class="small muted" style="text-transform:none;letter-spacing:0">${trained} day${trained === 1 ? "" : "s"}</span></h2>
+          ${weekDotsHTML(week)}
           ${state.activeSession
-            ? `<button class="btn primary block" data-nav="train" style="margin-top:10px">Resume Workout <span class="muted" style="font-weight:600;font-size:12px;color:#3a2410">· ${state.activeSession.entries.length} exercise${state.activeSession.entries.length === 1 ? "" : "s"} · ${sessionElapsedText()}</span></button>`
-            : `<button class="btn success block" data-nav="train" style="margin-top:10px">Start Workout</button>`}
+            ? `<button class="btn success block" data-nav="train" style="margin-top:16px">Resume workout <span class="btn-sub">· ${state.activeSession.entries.length} exercise${state.activeSession.entries.length === 1 ? "" : "s"} · ${sessionElapsedText()}</span></button>`
+            : `<button class="btn success block" data-nav="train" style="margin-top:16px">Start workout</button>`}
         </div>
 
         <div class="card">
@@ -1061,19 +1054,9 @@
         </div>
 
         <div class="card">
-          <h2>Muscle rotation</h2>
+          <h2>Muscle rotation ${infoButton("rotation")}</h2>
+          ${infoText("rotation", `Each row counts the days since that muscle group was last trained, one tick per day, against how often you aim to train it. Yellow means it's coming up, red means it's overdue or never trained.`)}
           ${rotationListHTML(rotation)}
-        </div>
-
-        <div class="card">
-          <h2>Recent sessions</h2>
-          ${recent.length === 0 ? `<div class="empty">No sessions logged yet.</div>` :
-            recent.map((s) => {
-              const mgs = Array.from(new Set(s.entries.flatMap((e) => e.muscleGroups || [])));
-              return `<div class="row"><div><div style="font-weight:700">${fmtDate(s.date)}</div>
-                <div class="small muted">${esc(mgs.join(", ")) || "No muscle groups"}</div></div>
-                <span style="display:flex;gap:5px">${sessionDurationPill(s)}<span class="pill">${s.entries.length} ex</span></span></div>`;
-            }).join("")}
         </div>
       </div>
     `;
@@ -1091,7 +1074,7 @@
           <div class="card">
             <h2>Start a workout ${infoButton("train")}</h2>
             ${infoText("train", `Add exercises and log sets as you go. Finish when done.`)}
-            <button class="btn primary block" id="start-session">Start New Session</button>
+            <button class="btn success block" id="start-session">Start new session</button>
           </div>
         </div>
       `;
@@ -1500,13 +1483,13 @@
     const todayEntry = history.find((e) => e.date === todayStr());
     const latest = history[history.length - 1];
     return `
-      <h2>Body weight <span class="link" data-nav="weight">Trend →</span></h2>
-      <div class="row" style="align-items:center">
-        <div style="font-size:22px;font-weight:800">${latest ? latest.weight + "kg" : "No entry"}</div>
-        <div style="display:flex;gap:6px;align-items:center">
-          <input type="number" inputmode="decimal" step="0.1" id="bodyweight-input" placeholder="kg" value="${todayEntry ? todayEntry.weight : ""}" style="width:80px" />
+      <h2>Body weight <span class="link" data-nav="weight">Trend ›</span></h2>
+      <div class="bw-row">
+        <span class="hero-num">${latest ? `${latest.weight}<span class="unit">kg</span>` : `<span class="muted" style="font-size:16px">No entry</span>`}</span>
+        <span class="bw-log">
+          <input type="number" inputmode="decimal" step="0.1" id="bodyweight-input" placeholder="kg" value="${todayEntry ? todayEntry.weight : ""}" />
           <button class="btn primary sm" id="save-bodyweight">${todayEntry ? "Update" : "Log"}</button>
-        </div>
+        </span>
       </div>
     `;
   }
@@ -1693,15 +1676,6 @@
             }) :
             filtered.length === 1 ? `<div class="empty">Only one weigh-in in this range. Widen the range or log again tomorrow.</div>` :
             `<div class="empty">No weigh-ins in this range yet.</div>`}
-        </div>
-
-        <div class="card">
-          <h2>History</h2>
-          ${fullHistory.length === 0 ? `<div class="empty">No weigh-ins yet. Log today's above to get started.</div>` :
-            fullHistory.slice().reverse().slice(0, 20).map((e) => `
-              <div class="row"><span class="small">${fmtDate(e.date)}</span>
-                <span class="small">${e.weight}kg <button class="btn sm danger" data-del-bodyweight="${e.date}" style="margin-left:8px">Delete</button></span></div>
-            `).join("")}
         </div>
       </div>
     `;
@@ -1891,7 +1865,7 @@
   // -----------------------------------------------------------------------
   // Root render
   // -----------------------------------------------------------------------
-  const titles = { home: "Custom Fit", train: "Log Workout", progress: "Progress", weight: "Body Weight", settings: "Settings" };
+  const titles = { home: "Custom Fit", train: "Log workout", progress: "Progress", weight: "Body weight", settings: "Settings" };
 
   function render() {
     let body;
@@ -1901,10 +1875,14 @@
     else if (state.route === "weight") body = viewWeight();
     else body = viewSettings();
 
+    const dateLine = new Date().toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
     appEl.innerHTML = `
       <div class="header">
-        <h1>${titles[state.route]}</h1>
-        <div class="sub">${state.route === "home" ? greeting() + " · " : ""}${new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</div>
+        <div>
+          <h1>${titles[state.route]}</h1>
+          <div class="sub">${dateLine}${state.route === "home" ? ` · ${greeting()}` : ""}</div>
+        </div>
+        <div class="logo" aria-hidden="true"></div>
       </div>
       ${body}
       <nav class="nav">
@@ -2041,14 +2019,6 @@
       toast("Goal updated");
       return;
     }
-    const delBw = t.closest("[data-del-bodyweight]");
-    if (delBw) {
-      await Repo.deleteBodyweight(delBw.dataset.delBodyweight);
-      state.bodyweight = await Repo.listBodyweight();
-      render();
-      return;
-    }
-
     // Train / session
     if (t.id === "start-session") {
       state.activeSession = { id: uid(), date: todayStr(), startedAt: Date.now(), entries: [] };
