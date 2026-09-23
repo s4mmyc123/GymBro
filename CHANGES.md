@@ -612,3 +612,9 @@ text field gets focus and slides back when it loses it; you cannot
 change tabs mid-typing anyway. The rest timer and any toast message
 follow the visible bottom edge instead, so they sit just above the
 keyboard rather than behind it. Service worker cache bumped to v24.
+
+## 33. Header scrolls with the page  (23 Sep 2026)
+
+The screen title no longer sticks to the top while you scroll; it moves
+away with the content like everything else. Service worker cache bumped
+to v25.

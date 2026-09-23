@@ -81,9 +81,6 @@ html, body {
 
 /* ---- Screen header: wordmark, date line, logo ---- */
 .header {
-  position: sticky;
-  top: 0;
-  z-index: 5;
   background: var(--bg);
   padding: calc(22px + env(safe-area-inset-top)) 20px 14px;
   border-bottom: 1px solid var(--hairline);
