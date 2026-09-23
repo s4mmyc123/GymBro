@@ -2355,6 +2355,24 @@
     appEl.addEventListener(type, (e) => { const svg = chartAt(e); if (svg) endScrub(svg); });
   }
 
+  // The on-screen keyboard. A fixed bottom bar floats up the page on iOS and
+  // Android while a field is focused and the page scrolls, so the nav hides
+  // until typing ends (styles: body.typing), and the rest timer and toast
+  // follow the visible bottom edge through --vv-gap, the distance between
+  // the layout viewport's bottom and the visual viewport's.
+  const isField = (el) => el && el.matches && el.matches("input, select, textarea");
+  appEl.addEventListener("focusin", (e) => { if (isField(e.target)) document.body.classList.add("typing"); });
+  appEl.addEventListener("focusout", (e) => { if (isField(e.target)) document.body.classList.remove("typing"); });
+  if (window.visualViewport) {
+    const syncViewportGap = () => {
+      const vv = window.visualViewport;
+      const gap = Math.max(0, Math.round(window.innerHeight - (vv.height + vv.offsetTop)));
+      document.documentElement.style.setProperty("--vv-gap", gap + "px");
+    };
+    window.visualViewport.addEventListener("resize", syncViewportGap);
+    window.visualViewport.addEventListener("scroll", syncViewportGap);
+  }
+
   appEl.addEventListener("change", async (e) => {
     try { await handleChange(e); } catch (err) { console.error(err); toast("Something went wrong. Try again, or reload the app"); }
   });

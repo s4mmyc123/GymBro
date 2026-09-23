@@ -601,3 +601,14 @@ set at 24px in the same light style as the weight beside it, with a small
 KG after it and no spinner arrows. Its placeholder is 0.0. The screen
 title sits 10px lower so it clears the phone's status bar, which was
 overlapping it. Service worker cache bumped to v23.
+
+## 32. Bottom bar no longer floats up the screen while typing  (23 Sep 2026)
+
+On phones, a bar fixed to the bottom of the screen detaches and drifts
+up the page while the on-screen keyboard is open and the page scrolls,
+on both iPhone and Android. That is what made the tab bar appear in the
+middle of the screen. Now the tab bar slides out of view the moment a
+text field gets focus and slides back when it loses it; you cannot
+change tabs mid-typing anyway. The rest timer and any toast message
+follow the visible bottom edge instead, so they sit just above the
+keyboard rather than behind it. Service worker cache bumped to v24.

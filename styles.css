@@ -275,7 +275,11 @@ label {
   border-top: 1px solid var(--hairline);
   padding: 10px 4px calc(8px + env(safe-area-inset-bottom));
   z-index: 10;
+  transition: transform 200ms ease-out;
 }
+/* While a field has focus the on-screen keyboard is up, and a fixed bar
+   would float mid-screen on iOS and Android; slide it away until typing ends */
+body.typing .nav { transform: translateY(110%); pointer-events: none; }
 .nav button {
   flex: 1;
   background: none;
@@ -434,7 +438,7 @@ label {
 .toast {
   position: fixed;
   left: 50%;
-  bottom: calc(96px + env(safe-area-inset-bottom));
+  bottom: calc(96px + var(--vv-gap, 0px) + env(safe-area-inset-bottom));
   transform: translate(-50%, 12px);
   background: var(--surface-2);
   border: 1px solid var(--hairline);
@@ -648,7 +652,7 @@ a, a:visited { color: var(--accent); }
 }
 @media (prefers-reduced-motion: reduce) {
   .sheet, .sheet-backdrop { animation: none; }
-  .toast, .btn, .nav button, input, .record-group-head .chevron, .week-dots .dot { transition: none; }
+  .toast, .btn, .nav, .nav button, input, .record-group-head .chevron, .week-dots .dot { transition: none; }
 }
 
 /* Tappable exercise / variation rows inside the sheet */
@@ -682,7 +686,7 @@ a, a:visited { color: var(--accent); }
 .rest-timer {
   position: fixed;
   left: 50%;
-  bottom: calc(88px + env(safe-area-inset-bottom));
+  bottom: calc(88px + var(--vv-gap, 0px) + env(safe-area-inset-bottom));
   transform: translate(-50%, 12px);
   background: var(--surface-2);
   border: 1px solid var(--accent);
