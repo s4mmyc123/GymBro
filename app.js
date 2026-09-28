@@ -17,11 +17,54 @@
   // -----------------------------------------------------------------------
   // Constants
   // -----------------------------------------------------------------------
-  // Muscle groups are fully user-managed (see the Settings tab) - each one
-  // has a name and a target weekly frequency. Defaults below only seed a
-  // starting list for new installs; the user can rename the concept
-  // entirely by deleting/adding groups afterwards.
-  const DEFAULT_MUSCLE_GROUPS = ["Chest", "Back", "Shoulders", "Biceps", "Triceps", "Legs", "Quads", "Abs", "Cardio"];
+  // Muscle groups are user-managed (Settings). Each has a name, a weekly
+  // target, and usually a place in the catalog below, which is what the body
+  // map draws. Six parents, each optionally split into parts: a group can
+  // track a parent ("Legs") or a part ("Quads"), or both. Ids double as the
+  // map's region ids (tools/bodymap_gen.py). Cardio, and any name that does
+  // not match the catalog, stays off the map but works everywhere else.
+  const MUSCLE_CATALOG = [
+    { id: "chest", name: "Chest", parts: [] },
+    { id: "shoulders", name: "Shoulders", parts: [
+      { id: "delt_front", name: "Front delts" }, { id: "delt_side", name: "Side delts" }, { id: "delt_rear", name: "Rear delts" }] },
+    { id: "arms", name: "Arms", parts: [
+      { id: "biceps", name: "Biceps" }, { id: "triceps", name: "Triceps" }, { id: "forearms", name: "Forearms" }] },
+    { id: "back", name: "Back", parts: [
+      { id: "lats", name: "Lats" }, { id: "traps", name: "Traps" }, { id: "upper_back", name: "Upper back" }, { id: "lower_back", name: "Lower back" }] },
+    { id: "abs", name: "Abs", parts: [
+      { id: "abs_upper", name: "Upper abs" }, { id: "abs_lower", name: "Lower abs" }, { id: "obliques", name: "Obliques" }] },
+    { id: "legs", name: "Legs", parts: [
+      { id: "quads", name: "Quads" }, { id: "hamstrings", name: "Hamstrings" }, { id: "glutes", name: "Glutes" }, { id: "hips", name: "Hips" }, { id: "calves", name: "Calves" }] }
+  ];
+  // id -> { id, name, parent (parent id or null), parts (ids) }
+  const CATALOG_BY_ID = {};
+  for (const parent of MUSCLE_CATALOG) {
+    CATALOG_BY_ID[parent.id] = { id: parent.id, name: parent.name, parent: null, parts: parent.parts.map((c) => c.id) };
+    for (const part of parent.parts) CATALOG_BY_ID[part.id] = { id: part.id, name: part.name, parent: parent.id, parts: [] };
+  }
+  // Other spellings for the same thing (lower case, letters only), so groups
+  // people named before the catalog existed still find their place.
+  const CATALOG_ALIASES = {
+    chest: ["pecs", "pectorals"], shoulders: ["shoulder", "delts", "deltoids"],
+    delt_front: ["frontdelt", "anteriordelts", "anteriordeltoid"], delt_side: ["sidedelt", "lateraldelts", "lateraldeltoid", "middledelts"],
+    delt_rear: ["reardelt", "posteriordelts", "posteriordeltoid"],
+    arms: ["arm"], biceps: ["bicep"], triceps: ["tricep"], forearms: ["forearm"],
+    lats: ["lat", "latissimus"], traps: ["trap", "trapezius"], upper_back: ["rhomboids", "midback"], lower_back: ["erectors", "lumbar"],
+    abs: ["abdominals", "core", "stomach"], obliques: ["oblique"],
+    legs: ["leg"], quads: ["quad", "quadriceps", "thighs"], hamstrings: ["hamstring", "hams"], glutes: ["glute", "gluteals"],
+    hips: ["hip", "hipflexors", "adductors"], calves: ["calf"]
+  };
+  function catalogIdForName(name) {
+    const key = String(name || "").toLowerCase().replace(/[^a-z]/g, "");
+    if (!key) return null;
+    for (const id in CATALOG_BY_ID) {
+      if (CATALOG_BY_ID[id].name.toLowerCase().replace(/[^a-z]/g, "") === key) return id;
+      if ((CATALOG_ALIASES[id] || []).includes(key)) return id;
+    }
+    return null;
+  }
+  // What a new install starts with: the six parents plus Cardio.
+  const DEFAULT_MUSCLE_GROUPS = ["Chest", "Shoulders", "Arms", "Back", "Abs", "Legs", "Cardio"];
   const DEFAULT_FREQUENCY = 2; // times per week
   const FREQUENCY_MAX = 14;    // times per week (matches the input's max attribute)
 
@@ -37,7 +80,6 @@
 
   // Retired tags, folded into "Legs" - kept only so already-seeded exercise
   // records can be migrated on load (see migrateLegacyMuscleGroups below).
-  const REMOVED_MUSCLE_GROUPS = ["Hamstrings", "Glutes", "Calves"];
 
   // The exercise library is fully user-built - you add each exercise
   // yourself (with muscle groups and optional variations).
@@ -117,7 +159,7 @@
   //                               ENTRY = { exerciseId, exerciseName, muscleGroups, variation, metric, sets: [ SET, .. ] }
   //                               SET   = { weight, reps } or { reps } or { minutes } or { distance }
   //   bodyweight    date        { date, weight, loggedAt }
-  //   muscleGroups  id          { id, name, frequency }
+  //   muscleGroups  id          { id, name, frequency, catalog }   catalog: MUSCLE_CATALOG id or null
   //   settings      key         { key, value }   see the list of keys below
   //
   // Things worth knowing about the model:
@@ -305,13 +347,18 @@
     }
 
     // Older records and backups carry a colour; it is dropped on the way out.
+    // A record with no catalog link (made before the catalog existed, or from
+    // an old backup) gets one from its name when the name matches, so it lands
+    // on the body map without a rewrite. Unknown links are treated as none.
     function tidyMuscleGroup(mg) {
       if (!mg || !isText(mg.id) || !isText(mg.name)) return null;
       const freq = Math.round(Number(mg.frequency));
+      const name = cleanTag(mg.name);
       return {
         id: mg.id,
-        name: cleanTag(mg.name),
-        frequency: Number.isFinite(freq) ? Math.min(FREQUENCY_MAX, Math.max(1, freq)) : DEFAULT_FREQUENCY
+        name,
+        frequency: Number.isFinite(freq) ? Math.min(FREQUENCY_MAX, Math.max(1, freq)) : DEFAULT_FREQUENCY,
+        catalog: isText(mg.catalog) && CATALOG_BY_ID[mg.catalog] ? mg.catalog : catalogIdForName(name)
       };
     }
 
@@ -323,10 +370,9 @@
     }
 
     // ---- 5. First-run tasks ---------------------------------------------
-    // Run at every boot. The two flagged tasks happen once per device; the
-    // retag task has no flag because it is cheap and does nothing when there
-    // is nothing to fix. An erased database goes through the same sequence,
-    // so "after Erase" and "fresh install" are the same state.
+    // Run at every boot. Each flagged task happens once per device. An erased
+    // database goes through the same sequence, so "after Erase" and "fresh
+    // install" are the same state.
     async function runOnce(flag, task) {
       if (await getSetting(flag, false)) return;
       await task();
@@ -335,7 +381,6 @@
 
     async function firstRun() {
       await runOnce("builtinsCleared", removeBuiltinExercises);
-      await retagRemovedMuscleGroups();
       await runOnce("muscleGroupsSeeded", seedMuscleGroups);
     }
 
@@ -349,23 +394,11 @@
       }
     }
 
-    // Hamstrings / Glutes / Calves were folded into "Legs". Exercises still
-    // tagged with them get the tag replaced. Sessions keep their snapshots.
-    async function retagRemovedMuscleGroups() {
-      for (const ex of await getAll("exercises")) {
-        const tags = Array.isArray(ex.muscleGroups) ? ex.muscleGroups : [];
-        if (!tags.some((t) => REMOVED_MUSCLE_GROUPS.includes(t))) continue;
-        const kept = tags.filter((t) => !REMOVED_MUSCLE_GROUPS.includes(t));
-        if (!kept.includes("Legs")) kept.push("Legs");
-        await put("exercises", Object.assign({}, ex, { muscleGroups: kept }));
-      }
-    }
-
     // A new install starts with a default muscle group list to edit.
     async function seedMuscleGroups() {
       if ((await getAll("muscleGroups")).length > 0) return;
       for (const name of DEFAULT_MUSCLE_GROUPS) {
-        await put("muscleGroups", { id: uid(), name, frequency: DEFAULT_FREQUENCY });
+        await put("muscleGroups", { id: uid(), name, frequency: DEFAULT_FREQUENCY, catalog: catalogIdForName(name) });
       }
     }
 
@@ -376,7 +409,7 @@
 
       // Muscle groups
       listMuscleGroups: () => list("muscleGroups", tidyMuscleGroup, byName),
-      addMuscleGroup: (name, frequency) => put("muscleGroups", { id: uid(), name, frequency }),
+      addMuscleGroup: (name, frequency, catalog) => put("muscleGroups", { id: uid(), name, frequency, catalog: catalog || catalogIdForName(name) }),
       updateMuscleGroup: (mg) => put("muscleGroups", mg),
       deleteMuscleGroup: (id) => del("muscleGroups", id),
 
@@ -439,7 +472,8 @@
 
         // Step 3: muscle groups merge by name. A match keeps the existing id
         // (exercises refer to groups by name) but takes the backup's
-        // frequency and colour, so re-seeded defaults never win over yours.
+        // frequency, and its catalog link if the existing group has none, so
+        // re-seeded defaults never win over yours.
         const byLowerName = {};
         for (const m of (await getAll("muscleGroups")).map(tidyMuscleGroup).filter(Boolean)) byLowerName[m.name.toLowerCase()] = m;
         const muscleGroups = [];
@@ -450,8 +484,8 @@
           if (!current) {
             muscleGroups.push(m);
             byLowerName[key] = m;
-          } else if (current.frequency !== m.frequency) {
-            const merged = Object.assign({}, current, { frequency: m.frequency });
+          } else if (current.frequency !== m.frequency || (!current.catalog && m.catalog)) {
+            const merged = Object.assign({}, current, { frequency: m.frequency, catalog: current.catalog || m.catalog });
             muscleGroups.push(merged);
             byLowerName[key] = merged;
             updatedGroups++;

@@ -618,3 +618,20 @@ keyboard rather than behind it. Service worker cache bumped to v24.
 The screen title no longer sticks to the top while you scroll; it moves
 away with the content like everything else. Service worker cache bumped
 to v25.
+
+## 34. Muscle catalog behind the groups  (28 Sep 2026)
+
+Groundwork for the body map. Muscle groups now carry a link to a fixed
+catalog of six parents (Chest, Shoulders, Arms, Back, Abs, Legs) and their
+parts (Front, Side and Rear delts; Biceps, Triceps, Forearms; Lats, Traps,
+Upper back, Lower back; Upper abs, Lower abs, Obliques; Quads, Hamstrings,
+Glutes, Hips, Calves). Nothing visible changes yet: groups are still named
+and targeted the same way, exercises still tag them by name, and rotation
+is unchanged. Existing groups are linked by name automatically on the way
+out of the database (Quads to quads, Delts to shoulders, Core to abs, and
+so on); a name the catalog does not know, such as Cardio, stays unlinked
+and simply has no place on the map. Backups include the link; older
+backups import as before and are linked the same way. New installs seed
+the six parents plus Cardio rather than the old nine groups. The old
+first-run task that folded Hamstrings, Glutes and Calves into Legs is
+gone, since those are catalog parts again.
