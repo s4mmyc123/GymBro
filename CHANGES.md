@@ -635,3 +635,16 @@ backups import as before and are linked the same way. New installs seed
 the six parents plus Cardio rather than the old nine groups. The old
 first-run task that folded Hamstrings, Glutes and Calves into Legs is
 gone, since those are catalog parts again.
+
+## 35. Muscle groups are picked from the catalog  (28 Sep 2026)
+
+Settings no longer has a free-text box for adding a muscle group. "Add
+muscle group" opens a sheet listing the six catalog groups. Each can be
+tracked as one group with Track, or opened with Parts to add its parts
+one at a time (Legs opens to Quads, Hamstrings, Glutes, Hips, Calves, and
+so on). A part and its whole group can both be tracked. Below the six,
+Cardio and a "Something else" row cover groups that have no place on the
+body map. Everything added starts at 2×/wk and is changed in the list as
+before. Each group in the list now says where it sits: whole group, part
+of which group, or not on the body map. Service worker cache bumped to
+v26.

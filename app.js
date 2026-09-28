@@ -1035,6 +1035,7 @@
       pickingVariationFor = null;
       if (trainFormOpen) { trainFormOpen = false; resetExerciseForm(); }
     }
+    if (route !== "settings") { musclePickerOpen = false; openCatalogParent = null; customMuscleOpen = false; }
     state.route = route;
     state.progressDetail = null;
     render();
@@ -1803,7 +1804,7 @@
           <div style="margin-bottom:12px">
             ${state.muscleGroups.map((mg) => `
               <div class="row" style="align-items:center">
-                <span>${esc(mg.name)}</span>
+                <span>${esc(mg.name)}<div class="small muted">${catalogPlacement(mg)}</div></span>
                 <span style="display:flex;align-items:center;gap:8px">
                   <input type="number" inputmode="numeric" min="1" max="14" value="${mg.frequency}" data-muscle-freq="${mg.id}" style="width:56px" />
                   <span class="small muted">x/wk</span>
@@ -1812,11 +1813,7 @@
               </div>
             `).join("")}
           </div>`}
-          <div class="row" style="gap:6px">
-            <input type="text" id="new-muscle-name" placeholder="e.g. Forearms" maxlength="30" style="flex:1" />
-            <input type="number" inputmode="numeric" id="new-muscle-freq" placeholder="x/wk" value="2" min="1" max="14" style="width:64px" />
-            <button class="btn primary sm" id="add-muscle-btn">Add</button>
-          </div>
+          <button class="btn ghost block" id="open-muscle-picker">+ Add muscle group</button>
         </div>
 
         <div class="card">
@@ -1855,7 +1852,68 @@
           <div class="small muted">Custom Fit v2.0 · local-only storage on this device (IndexedDB). Install to your home screen for the full-screen app feel. See the README for how.</div>
         </div>
       </div>
+      ${musclePickerOpen ? musclePickerSheetHTML() : ""}
     `;
+  }
+
+  // One line under a group's name in Settings: whether it is a whole catalog
+  // group, a part of one, or off the map.
+  function catalogPlacement(mg) {
+    const entry = mg.catalog ? CATALOG_BY_ID[mg.catalog] : null;
+    if (!entry) return "Not on the body map";
+    if (entry.parent) return `Part of ${esc(CATALOG_BY_ID[entry.parent].name)}`;
+    return entry.parts.length ? "Whole group" : "";
+  }
+
+  // Settings > Add muscle group. The six catalog parents, each trackable as
+  // one group or opened to pick its parts; Cardio and a free-text "something
+  // else" below for groups that have no place on the map.
+  function musclePickerSheetHTML() {
+    const tracked = new Set(state.muscleGroups.map((mg) => mg.catalog).filter(Boolean));
+    const trackedNames = new Set(state.muscleGroups.map((mg) => mg.name.toLowerCase()));
+    const parents = MUSCLE_CATALOG.map((parent) => {
+      const parts = parent.parts;
+      const trackedParts = parts.filter((c) => tracked.has(c.id)).length;
+      const isOpen = openCatalogParent === parent.id;
+      const partsNote = trackedParts > 0 ? `${trackedParts} of ${parts.length} parts` : parts.length ? `${parts.length} parts` : "";
+      const note = tracked.has(parent.id) ? `Tracked as one group${trackedParts > 0 ? ` · ${partsNote}` : ""}` : trackedParts > 0 ? `Tracking ${partsNote}` : partsNote;
+      return `
+        <div class="pick-row" style="cursor:default">
+          <span>${esc(parent.name)}<div class="small muted">${note}</div></span>
+          <span class="btn-row" style="flex-wrap:nowrap">
+            ${tracked.has(parent.id) ? `<span class="pill">Added</span>` : `<button class="btn sm" data-pick-catalog="${parent.id}">Track</button>`}
+            ${parts.length ? `<button class="btn sm ghost" data-open-catalog="${parent.id}" aria-expanded="${isOpen}">${isOpen ? "Hide parts" : "Parts"}</button>` : ""}
+          </span>
+        </div>
+        ${isOpen ? `<div class="chip-row" style="padding:10px 0 14px 12px;border-bottom:1px solid var(--hairline)">
+          ${parts.map((c) => `<span class="chip${tracked.has(c.id) ? " selected" : ""}" data-pick-catalog="${c.id}">${esc(c.name)}</span>`).join("")}
+        </div>` : ""}`;
+    }).join("");
+    const cardioTracked = trackedNames.has("cardio");
+    return `
+      <div class="sheet-wrap">
+        <div class="sheet-backdrop" data-close-muscle-picker></div>
+        <div class="sheet">
+          <div class="sheet-title"><h2 style="margin:0">Add muscle group</h2><span class="link" data-close-muscle-picker>Close</span></div>
+          <div class="small muted" style="margin-bottom:10px">Track a whole group, or open its parts to rotate them separately. Each starts at ${DEFAULT_FREQUENCY}×/wk; change that in the list.</div>
+          <div class="sheet-scroll">
+            ${parents}
+            <div class="label" style="margin:14px 0 6px">Not on the body map</div>
+            <div class="pick-row" style="cursor:default">
+              <span>Cardio</span>
+              ${cardioTracked ? `<span class="pill">Added</span>` : `<button class="btn sm" data-pick-name="Cardio">Track</button>`}
+            </div>
+            <div class="pick-row" style="cursor:default;border-bottom:none">
+              <span>Something else</span>
+              <button class="btn sm ghost" id="toggle-custom-muscle" aria-expanded="${customMuscleOpen}">${customMuscleOpen ? "Hide" : "Name it"}</button>
+            </div>
+            ${customMuscleOpen ? `<div class="row" style="gap:8px;padding:4px 0 12px">
+              <input type="text" id="new-muscle-name" placeholder="e.g. Neck" maxlength="30" style="flex:1" />
+              <button class="btn primary sm" id="add-muscle-btn">Add</button>
+            </div>` : ""}
+          </div>
+        </div>
+      </div>`;
   }
 
   function customExerciseForm() {
@@ -1934,6 +1992,9 @@
   // -----------------------------------------------------------------------
   let selectedMuscles = [];
   let addExerciseOpen = false;
+  let musclePickerOpen = false;     // Settings: the "Add muscle group" sheet
+  let openCatalogParent = null;     // which parent in that sheet shows its parts
+  let customMuscleOpen = false;     // the "something else" name field inside it
   let customExerciseOpen = false;
   let pickingVariationFor = null;   // exercise id waiting on a variation choice (Train)
   let trainFormOpen = false;        // "new exercise" form open inside the Train add panel
@@ -2177,17 +2238,34 @@
     }
 
     // Settings: muscle groups
-    if (t.id === "add-muscle-btn") {
-      const nameInput = document.getElementById("new-muscle-name");
-      const freqInput = document.getElementById("new-muscle-freq");
-      const name = nameInput.value.trim();
-      const frequency = clampFrequency(freqInput.value);
-      if (!name) { toast("Enter a muscle group name"); return; }
+    if (t.id === "open-muscle-picker") { musclePickerOpen = true; openCatalogParent = null; customMuscleOpen = false; render(); return; }
+    if (t.closest("[data-close-muscle-picker]")) { musclePickerOpen = false; render(); return; }
+    const openParent = t.closest("[data-open-catalog]");
+    if (openParent) {
+      openCatalogParent = openCatalogParent === openParent.dataset.openCatalog ? null : openParent.dataset.openCatalog;
+      render(); return;
+    }
+    if (t.id === "toggle-custom-muscle") { customMuscleOpen = !customMuscleOpen; render(); return; }
+    const pickCatalog = t.closest("[data-pick-catalog]");
+    const pickName = t.closest("[data-pick-name]");
+    if (pickCatalog || pickName || t.id === "add-muscle-btn") {
+      let name, catalog = null;
+      if (pickCatalog) {
+        catalog = pickCatalog.dataset.pickCatalog;
+        name = CATALOG_BY_ID[catalog].name;
+        if (state.muscleGroups.some((mg) => mg.catalog === catalog)) { toast("Already in your list"); return; }
+      } else if (pickName) {
+        name = pickName.dataset.pickName;
+      } else {
+        name = (document.getElementById("new-muscle-name").value || "").trim();
+        if (!name) { toast("Enter a name"); return; }
+      }
       if (state.muscleGroups.some((mg) => mg.name.toLowerCase() === name.toLowerCase())) { toast("Already in your list"); return; }
-      await Repo.addMuscleGroup(name, frequency);
+      await Repo.addMuscleGroup(name, DEFAULT_FREQUENCY, catalog);
       state.muscleGroups = await Repo.listMuscleGroups();
+      customMuscleOpen = false;
       render();
-      toast("Muscle group added");
+      toast(`${name} added`);
       return;
     }
     const delMuscle = t.closest("[data-del-muscle]");
