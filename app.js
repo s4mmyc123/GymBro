@@ -1392,13 +1392,18 @@
     const clip = `clip-path="url(#bm-clip-${side})"`;
     const head = (cls) => `<ellipse class="${cls}" cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}"/>`;
     let s = `<svg class="bodymap" viewBox="${BODY_MAP.viewBox}" data-side="${side}" role="img" aria-label="${side} view of the body">`;
-    s += `<defs><linearGradient id="bm-shade-${side}" x1="0" y1="0" x2="0.7" y2="1"><stop class="bm-hi" offset="0"/><stop class="bm-mid" offset="0.55"/><stop class="bm-lo" offset="1"/></linearGradient><clipPath id="bm-clip-${side}"><path d="${v.body}"/></clipPath></defs>`;
+    s += `<defs><linearGradient id="bm-shade-${side}" x1="0" y1="0" x2="0.7" y2="1"><stop class="bm-hi" offset="0"/><stop class="bm-mid" offset="0.55"/><stop class="bm-lo" offset="1"/></linearGradient>`
+       + `<pattern id="bm-hatch-${side}" patternUnits="userSpaceOnUse" width="5" height="5" patternTransform="rotate(45)"><line class="bm-hatch" x1="0" y1="0" x2="0" y2="5"/></pattern>`
+       + `<clipPath id="bm-clip-${side}"><path d="${v.body}"/></clipPath></defs>`;
     s += head("bm-body") + `<path class="bm-body" d="${v.neck}"/><path class="bm-body" d="${v.body}"/>`;
+    // Untracked muscles stay part of the body, a shade darker with a fine
+    // hatch, so "not chosen" is visible without the figure looking cut up
     for (const [gid, d] of v.tiles) {
       const o = owners[gid];
-      s += `<path class="bm-region${o ? " " + o.status : ""}" data-region="${gid}" d="${d}" ${clip}/>`;
+      s += `<path class="bm-region ${o ? o.status : "off"}" data-region="${gid}" d="${d}" ${clip}/>`;
     }
     for (const [, d] of v.tiles) s += `<path class="bm-shade" d="${d}" fill="url(#bm-shade-${side})" ${clip}/>`;
+    for (const [gid, d] of v.tiles) if (!owners[gid]) s += `<path class="bm-shade" d="${d}" fill="url(#bm-hatch-${side})" ${clip}/>`;
     s += `<ellipse class="bm-shade" cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="url(#bm-shade-${side})"/>`;
     for (const d of v.seams) s += `<path class="bm-seam" d="${d}"/>`;
     s += `<path class="bm-edge" d="${v.body}"/>` + head("bm-edge");
@@ -1438,6 +1443,7 @@
             <div>${bodyMapSVG("front", owners, sel)}<div class="bm-cap">Front</div></div>
             <div>${bodyMapSVG("back", owners, sel)}<div class="bm-cap">Back</div></div>
           </div>
+          ${Object.keys(CATALOG_BY_ID).some((id) => !CATALOG_BY_ID[id].parts.length && !owners[id]) ? `<div class="bm-note small muted">Hatched muscles aren't tracked. <span class="link" data-nav="settings">Add them in Settings ›</span></div>` : ""}
         </div>
 
         <div class="card">

@@ -522,6 +522,9 @@ svg[data-chart-xs] {
 .bodymap { width: 100%; height: auto; display: block; }
 .bodymap .bm-body { fill: var(--body); }
 .bodymap .bm-region { fill: var(--body); cursor: pointer; }
+.bodymap .bm-region.off { fill: color-mix(in srgb, var(--body) 70%, var(--bg)); }   /* not tracked: a shade darker, then hatched */
+.bodymap .bm-hatch { stroke: var(--bg); stroke-width: 1.1; opacity: 0.55; }
+.bm-note { margin-top: 12px; text-align: center; }
 .bodymap .bm-region.good { fill: var(--good); }
 .bodymap .bm-region.warn { fill: color-mix(in srgb, var(--warn) 78%, white); } /* lighter than good, so the two also differ by lightness */
 .bodymap .bm-region.bad { fill: var(--bad); }
