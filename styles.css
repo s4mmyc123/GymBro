@@ -15,6 +15,7 @@
   --good: #7cc49a;
   --warn: #d9b256;
   --bad: #e07070;
+  --body: #46413c;                 /* the figure on the body map: muscle tone when not tracked */
   --overlay: rgba(0, 0, 0, 0.6);
 
   /* Older names still used by a few components, mapped to the tokens */
@@ -283,15 +284,15 @@ body.typing .nav { transform: translateY(110%); pointer-events: none; }
   border: none;
   color: var(--text-dim);
   font-family: inherit;
-  font-size: 10.5px;
+  font-size: 9.5px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 5px;
-  padding: 4px 1px;
+  padding: 4px 0;
   cursor: pointer;
   transition: color var(--motion);
 }
@@ -510,6 +511,26 @@ svg[data-chart-xs] {
   user-select: none;
   -webkit-user-select: none;
 }
+
+/* ---- Body map (Rotation tab): the one place status colours are fills ---- */
+.bm-readout { font-size: 12.5px; color: var(--text); margin-bottom: 12px; min-height: 18px; }
+.bm-readout b { font-weight: 600; }
+.bm-figs { display: flex; justify-content: space-evenly; gap: 8px; }
+.bm-figs > div { width: 47%; }
+.bm-cap { font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; text-align: center; margin-top: 6px; }
+.bodymap { width: 100%; height: auto; display: block; }
+.bodymap .bm-body { fill: var(--body); }
+.bodymap .bm-region { fill: var(--body); cursor: pointer; }
+.bodymap .bm-region.good { fill: var(--good); }
+.bodymap .bm-region.warn { fill: color-mix(in srgb, var(--warn) 78%, white); } /* lighter than good, so the two also differ by lightness */
+.bodymap .bm-region.bad { fill: var(--bad); }
+.bodymap .bm-shade { pointer-events: none; }
+.bodymap .bm-hi { stop-color: white; stop-opacity: 0.12; }   /* sculpting: a light from the top left */
+.bodymap .bm-mid { stop-color: white; stop-opacity: 0; }
+.bodymap .bm-lo { stop-color: black; stop-opacity: 0.18; }
+.bodymap .bm-seam { fill: none; stroke: var(--bg); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.bodymap .bm-edge { fill: none; stroke: var(--bg); stroke-width: 2.2; stroke-linejoin: round; pointer-events: none; }
+.bodymap .bm-sel { fill: none; stroke: var(--text); stroke-width: 1.6; stroke-linejoin: round; pointer-events: none; }
 
 /* Progress > Records: collapsible muscle-group sections */
 .record-group + .record-group { border-top: 1px solid var(--hairline); }

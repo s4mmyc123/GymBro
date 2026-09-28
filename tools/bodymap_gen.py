@@ -281,3 +281,32 @@ io.open(os.path.join(OUT, "19-bodymap-sculpted.html"), "w", encoding="utf-8", ne
 big = f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Sculpted, large</title><style>{CSS}</style></head><body><div class="big">{figure("front")}{figure("back")}</div></body></html>"""
 io.open(os.path.join(OUT, "20-bodymap-sculpted-large.html"), "w", encoding="utf-8", newline="\n").write(big)
 print("wrote 19 and 20")
+
+
+# ---------------- Export for the app ----------------
+# Writes the geometry as one JS constant. tools/bodymap_embed.py (or the
+# next hand edit) pastes it into app.js between the BODY_MAP markers, so the
+# app never does any geometry maths; it only fills and strokes these paths.
+import json
+
+def export_js(path):
+    def view(side):
+        tiles = FRONT if side == "front" else BACK
+        seams = SEAMS_FRONT if side == "front" else SEAMS_BACK
+        t = []
+        for gid, pts, mir in tiles:
+            for P in ([pts, M(pts)] if mir else [pts]):
+                t.append([gid, smooth(P, corners=True)])
+        sm = []
+        for line in seams:
+            for P in (line, M(line)):
+                sm.append(smooth(P, closed=False))
+        return {"body": smooth(OUTLINE[side]), "neck": smooth(NECK),
+                "neckSides": [smooth(P, closed=False) for P in (NECK_SIDE, M(NECK_SIDE))],
+                "tiles": t, "seams": sm}
+    data = {"viewBox": f"0 0 {W} {H}", "head": list(HEAD), "front": view("front"), "back": view("back")}
+    js = "  const BODY_MAP = " + json.dumps(data, separators=(",", ":")) + ";"
+    io.open(path, "w", encoding="utf-8", newline="\n").write(js)
+    print("wrote", path, len(js), "bytes")
+
+export_js(os.path.join(OUT, "bodymap-data.js"))
