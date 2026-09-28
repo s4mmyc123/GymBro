@@ -666,12 +666,13 @@
   // (not by the muscle's identity), so green/yellow/red always means
   // recently done / coming up / overdue. Never trained lights all seven.
   const ROTATION_TICKS = 7;
-  function rotationItemHTML(r) {
+  function rotationItemHTML(r, tappable) {
     const status = rotationColor(r.overdueRatio);
     const lit = r.daysSince === Infinity ? ROTATION_TICKS : Math.min(ROTATION_TICKS, r.daysSince);
     const ticks = Array.from({ length: ROTATION_TICKS }, (_, i) => `<i class="${i < lit ? status : ""}"></i>`).join("");
+    const tap = tappable && r.catalog ? ` list-tap${state.mapSelection === r.catalog ? " selected" : ""}" data-map-group="${r.catalog}` : "";
     return `
-      <div class="rotation-item">
+      <div class="rotation-item${tap}">
         <span class="rot-name">${esc(r.muscle)}<small>${r.frequency}×/wk</small></span>
         <span class="ticks">${ticks}</span>
         <span class="pill ${status} rot-status">${r.daysSince === Infinity ? "Never" : r.daysSince === 0 ? "Today" : `${r.daysSince} day${r.daysSince === 1 ? "" : "s"}`}</span>
@@ -1395,7 +1396,7 @@
     s += head("bm-body") + `<path class="bm-body" d="${v.neck}"/><path class="bm-body" d="${v.body}"/>`;
     for (const [gid, d] of v.tiles) {
       const o = owners[gid];
-      s += `<path class="bm-region${o ? " " + o.status : ""}${selected === gid ? " sel" : ""}" data-region="${gid}" d="${d}" ${clip}/>`;
+      s += `<path class="bm-region${o ? " " + o.status : ""}" data-region="${gid}" d="${d}" ${clip}/>`;
     }
     for (const [, d] of v.tiles) s += `<path class="bm-shade" d="${d}" fill="url(#bm-shade-${side})" ${clip}/>`;
     s += `<ellipse class="bm-shade" cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="url(#bm-shade-${side})"/>`;
@@ -1403,7 +1404,8 @@
     s += `<path class="bm-edge" d="${v.body}"/>` + head("bm-edge");
     for (const d of v.neckSides) s += `<path class="bm-edge" d="${d}"/>`;
     if (selected) {
-      for (const [gid, d] of v.tiles) if (gid === selected) s += `<path class="bm-sel" d="${d}" ${clip}/>`;
+      const hit = (gid) => gid === selected || (CATALOG_BY_ID[gid] && CATALOG_BY_ID[gid].parent === selected);
+      for (const [gid, d] of v.tiles) if (hit(gid)) s += `<path class="bm-sel" d="${d}" ${clip}/>`;
     }
     return s + "</svg>";
   }
@@ -1415,7 +1417,9 @@
     let readout = `<span class="muted">Tap a muscle to see where it stands.</span>`;
     if (sel) {
       const entry = CATALOG_BY_ID[sel];
-      const o = owners[sel];
+      // A tapped region has an owner; a tapped row is a tracked group itself
+      const own = rotation.find((r) => r.catalog === sel);
+      const o = owners[sel] || (own ? { group: own, status: rotationColor(own.overdueRatio) } : null);
       if (o) {
         const via = o.group.catalog !== sel ? ` <span class="muted">(part of ${esc(o.group.muscle)})</span>` : "";
         const word = { good: "on track", warn: "due", bad: o.group.daysSince === Infinity ? "never trained" : "overdue" }[o.status];
@@ -1438,15 +1442,15 @@
 
         <div class="card">
           <h2>Muscle rotation</h2>
-          ${rotationListHTML(rotation)}
+          ${rotationListHTML(rotation, true)}
         </div>
       </div>
     `;
   }
 
-  function rotationListHTML(rotation) {
+  function rotationListHTML(rotation, tappable) {
     if (rotation.length === 0) return `<div class="empty">No muscle groups yet. Add some in Settings.</div>`;
-    return rotation.map(rotationItemHTML).join("");
+    return rotation.map((r) => rotationItemHTML(r, tappable)).join("");
   }
 
   // Exercise by id. One that's been deleted from the library is rebuilt from
@@ -2152,8 +2156,12 @@
     if (navBtn) { navTo(navBtn.dataset.nav); return; }
 
     if (t.closest("[data-back-progress]")) { state.progressDetail = null; render(); return; }
-    const region = t.closest("[data-region]");
-    if (region) { state.mapSelection = state.mapSelection === region.dataset.region ? null : region.dataset.region; render(); return; }
+    const region = t.closest("[data-region], [data-map-group]");
+    if (region) {
+      const id = region.dataset.region || region.dataset.mapGroup;
+      state.mapSelection = state.mapSelection === id ? null : id;
+      render(); return;
+    }
     const infoBtn = t.closest("[data-info-toggle]");
     if (infoBtn) {
       const key = infoBtn.dataset.infoToggle;
