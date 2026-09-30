@@ -661,16 +661,19 @@
     return "good";
   }
 
-  // Rotation row (Home): seven ticks, one lit per day since the group was
-  // last trained, coloured by urgency relative to its own target frequency
-  // (not by the muscle's identity), so green/yellow/red always means
-  // recently done / coming up / overdue. Never trained lights all seven.
+  // Rotation row (Home and the Rotation tab): seven ticks, one lit per day
+  // since the group was last trained, coloured by urgency relative to its
+  // own target frequency (not by the muscle's identity), so green/yellow/red
+  // always means recently done / coming up / overdue. Never trained lights
+  // all seven. The text at the right is the day count (Today, 4 days, Never)
+  // in the status colour; the verdict words (on track, due, overdue) live in
+  // the body map's readout and summary line, one tap away.
   const ROTATION_TICKS = 7;
-  function rotationItemHTML(r, tappable) {
+  function rotationItemHTML(r, tappable, selectedGroup) {
     const status = rotationColor(r.overdueRatio);
     const lit = r.daysSince === Infinity ? ROTATION_TICKS : Math.min(ROTATION_TICKS, r.daysSince);
     const ticks = Array.from({ length: ROTATION_TICKS }, (_, i) => `<i class="${i < lit ? status : ""}"></i>`).join("");
-    const tap = tappable && r.catalog ? ` list-tap${state.mapSelection === r.catalog ? " selected" : ""}" data-map-group="${r.catalog}` : "";
+    const tap = tappable && r.catalog ? ` list-tap${selectedGroup === r.muscle ? " selected" : ""}" data-map-group="${r.catalog}` : "";
     return `
       <div class="rotation-item${tap}">
         <span class="rot-name">${esc(r.muscle)}<small>${r.frequency}×/wk</small></span>
@@ -1047,10 +1050,12 @@
       pickingVariationFor = null;
       if (trainFormOpen) { trainFormOpen = false; resetExerciseForm(); }
     }
-    if (route !== "settings") { musclePickerOpen = false; openCatalogParent = null; customMuscleOpen = false; }
+    if (route !== "settings") { musclePickerOpen = false; openCatalogParent = null; customMuscleOpen = false; openListGroup = null; }
+    if (route !== "rotation") state.mapSelection = null; // the tab always opens on the overview
     state.route = route;
     state.progressDetail = null;
     render();
+    window.scrollTo(0, 0); // a tab always opens at its top, whatever the last one was scrolled to
     // Storage numbers drift as you log sets; re-measure on
     // each visit to Settings and repaint once the (async) answer is back.
     if (route === "settings") refreshStorageInfo().then(() => { if (state.route === "settings") render(); });
@@ -1101,8 +1106,8 @@
         </div>
 
         <div class="card">
-          <h2>Muscle rotation <span style="display:flex;align-items:center;gap:10px"><span class="link" data-nav="rotation">Body map ›</span>${infoButton("rotation")}</span></h2>
-          ${infoText("rotation", `Each row counts the days since that muscle group was last trained, one tick per day, against how often you aim to train it. Yellow means it's coming up, red means it's overdue or never trained.`)}
+          <h2>Muscle rotation <span class="h2-side"><span class="link" data-nav="rotation">Body map ›</span>${infoButton("rotation")}</span></h2>
+          ${infoText("rotation", `Each row counts the days since that muscle group was last trained, one tick per day, against how often you aim to train it. Yellow means it's due, red means it's overdue or never trained.`)}
           ${rotationListHTML(rotation)}
         </div>
       </div>
@@ -1230,7 +1235,7 @@
     const ex = state.exercises.find((e) => e.id === pickingVariationFor);
     if (!ex) return "";
     return `
-      <div class="sheet-title"><h2 style="margin:0">${esc(ex.name)}</h2><span class="link" data-close-add>Close</span></div>
+      <div class="sheet-title"><h2>${esc(ex.name)}</h2><span class="link" data-close-add>Close</span></div>
       <div class="small muted" style="margin-bottom:12px">Which variation? Each keeps its own last-time and best numbers.</div>
       ${ex.variations.map((vName) => `<div class="pick-row" data-pick-variation="${esc(vName)}"><span>${esc(vName)}</span><span class="chev">›</span></div>`).join("")}
       <div class="pick-row" data-pick-variation=""><span>Standard <span class="small muted">(no variation)</span></span><span class="chev">›</span></div>
@@ -1265,14 +1270,14 @@
   function pickerContent() {
     if (state.exercises.length === 0) {
       return `
-        <div class="sheet-title"><h2 style="margin:0">Add exercise</h2><span class="link" data-close-add>Close</span></div>
+        <div class="sheet-title"><h2>Add exercise</h2><span class="link" data-close-add>Close</span></div>
         <div class="empty">Your exercise library is empty. Create your first exercise right here.</div>
         <button class="btn primary block" id="train-new-exercise-btn">+ New exercise</button>
       `;
     }
     const groups = state.muscleGroups.map((mg) => mg.name).filter((mg) => state.exercises.some((ex) => ex.muscleGroups.includes(mg)));
     return `
-      <div class="sheet-title"><h2 style="margin:0">Add exercise</h2><span class="link" data-close-add>Close</span></div>
+      <div class="sheet-title"><h2>Add exercise</h2><span class="link" data-close-add>Close</span></div>
       <div class="field" style="margin-top:10px">
         <input type="text" id="exercise-search" placeholder="Search exercises…" value="${esc(pickerSearch)}" />
       </div>
@@ -1378,8 +1383,33 @@
     return owners;
   }
 
-  function rotationStatusWord(r) {
-    return r.daysSince === Infinity ? "Never" : r.daysSince === 0 ? "Today" : `${r.daysSince} day${r.daysSince === 1 ? "" : "s"}`;
+  // "today", "1 day ago", "6 days ago": when a group was last trained
+  function rotationWhen(r) {
+    return r.daysSince === 0 ? "today" : `${r.daysSince} day${r.daysSince === 1 ? "" : "s"} ago`;
+  }
+
+  // A group's status as a phrase in the colour the map and ticks use: on
+  // track, due, overdue, or never trained (red like overdue, but saying why).
+  function rotationStatusPhrase(r) {
+    const status = rotationColor(r.overdueRatio);
+    const word = status === "good" ? "on track" : status === "warn" ? "due" : r.daysSince === Infinity ? "never trained" : "overdue";
+    return { status, word };
+  }
+
+  // The same verdict as one short word for a rotation row's right column
+
+  // The body map readout at rest: how many groups sit in each status, worst
+  // first, each count in its colour, so the line is also the map's legend.
+  // Empty when nothing is tracked.
+  function rotationSummaryHTML(rotation) {
+    const counts = {}, colour = {};
+    for (const r of rotation) {
+      const p = rotationStatusPhrase(r);
+      counts[p.word] = (counts[p.word] || 0) + 1;
+      colour[p.word] = p.status;
+    }
+    return ["overdue", "never trained", "due", "on track"].filter((w) => counts[w])
+      .map((w) => `<span class="pill ${colour[w]}">${counts[w]} ${w}</span>`).join(" · ");
   }
 
   // One view of the figure. Fills first (body tone or the owner's status
@@ -1409,54 +1439,76 @@
     s += `<path class="bm-edge" d="${v.body}"/>` + head("bm-edge");
     for (const d of v.neckSides) s += `<path class="bm-edge" d="${d}"/>`;
     if (selected) {
-      const hit = (gid) => gid === selected || (CATALOG_BY_ID[gid] && CATALOG_BY_ID[gid].parent === selected);
+      // The outline shows everything the selection's status applies to: the
+      // tapped region and its siblings under the same tracked group, or all
+      // of a tapped row's regions. A row and a region then behave alike.
+      const selOwner = owners[selected] ? owners[selected].group : null;
+      const hit = (gid) => gid === selected
+        || (CATALOG_BY_ID[gid] && CATALOG_BY_ID[gid].parent === selected)
+        || (selOwner && owners[gid] && owners[gid].group === selOwner);
       for (const [gid, d] of v.tiles) if (hit(gid)) s += `<path class="bm-sel" d="${d}" ${clip}/>`;
     }
     return s + "</svg>";
   }
 
+  // The Rotation tab is one section: the figures with their readout, then
+  // the same rows Home shows, straight underneath, since they are one thing
+  // (the rows are the map's detail and its source of truth). A tap on a
+  // muscle or a row redraws only this section (renderRotation), so nothing
+  // else on the screen moves.
   function viewRotation() {
+    return `<div class="view"><div class="card" id="rotation">${rotationSectionHTML()}</div></div>`;
+  }
+
+  function rotationSectionHTML() {
     const rotation = computeRotation(state.sessions);
     const owners = bodyMapOwners(rotation);
     const sel = state.mapSelection && CATALOG_BY_ID[state.mapSelection] ? state.mapSelection : null;
-    let readout = `<span class="muted">Tap a muscle to see where it stands.</span>`;
+    // The readout is two lines tall whether or not a muscle is tapped, so
+    // the figures never shift under a finger. At rest the first line sums
+    // up the whole rotation (and doubles as the legend); while a muscle is
+    // tapped it names that muscle and its verdict, with where it sits and
+    // when it was trained on the second line.
+    let line1 = rotationSummaryHTML(rotation), line2 = "";
+    let selectedGroup = null; // the tracked group behind the selection, lit in the rows below
     if (sel) {
       const entry = CATALOG_BY_ID[sel];
       // A tapped region has an owner; a tapped row is a tracked group itself
-      const own = rotation.find((r) => r.catalog === sel);
-      const o = owners[sel] || (own ? { group: own, status: rotationColor(own.overdueRatio) } : null);
-      if (o) {
-        const via = o.group.catalog !== sel ? ` <span class="muted">(part of ${esc(o.group.muscle)})</span>` : "";
-        const word = { good: "on track", warn: "due", bad: o.group.daysSince === Infinity ? "never trained" : "overdue" }[o.status];
-        readout = `<b>${esc(entry.name)}</b>${via} · <span class="pill ${o.status}">${word}</span> · ${o.group.daysSince === Infinity ? "no sessions yet" : `${rotationStatusWord(o.group).toLowerCase()} since trained`}`;
+      const group = owners[sel] ? owners[sel].group : rotation.find((r) => r.catalog === sel);
+      if (group) {
+        selectedGroup = group.muscle;
+        const p = rotationStatusPhrase(group);
+        line1 = `<b>${esc(entry.name)}</b> · <span class="pill ${p.status}">${p.word}</span>`;
+        const facts = [];
+        if (group.catalog !== sel) facts.push(`Part of ${esc(group.muscle)}`);
+        if (group.daysSince !== Infinity) facts.push(`${facts.length ? "trained" : "Trained"} ${rotationWhen(group)}`);
+        line2 = facts.join(" · ");
       } else {
-        readout = `<b>${esc(entry.name)}</b> · <span class="muted">not tracked. Add it under Settings.</span>`;
+        line1 = `<b>${esc(entry.name)}</b> · <span class="muted">not tracked</span>`;
+        line2 = `<span class="link" data-nav="settings">Add it in Settings ›</span>`;
       }
     }
+    const untracked = Object.keys(CATALOG_BY_ID).some((id) => !CATALOG_BY_ID[id].parts.length && !owners[id]);
     return `
-      <div class="view">
-        <div class="card">
-          <h2>Body map ${infoButton("bodymap")}</h2>
-          ${infoText("bodymap", `Each muscle is coloured by how long since you trained it against its weekly target: green recent, yellow coming up, red overdue or never trained. A part you track colours its own region; a whole group colours all of its regions. Muscles you don't track stay plain.`)}
-          <div class="bm-readout">${readout}</div>
-          <div class="bm-figs">
-            <div>${bodyMapSVG("front", owners, sel)}<div class="bm-cap">Front</div></div>
-            <div>${bodyMapSVG("back", owners, sel)}<div class="bm-cap">Back</div></div>
-          </div>
-          ${Object.keys(CATALOG_BY_ID).some((id) => !CATALOG_BY_ID[id].parts.length && !owners[id]) ? `<div class="bm-note small muted">Hatched muscles aren't tracked. <span class="link" data-nav="settings">Add them in Settings ›</span></div>` : ""}
+      <div id="body-map">
+        <h2>Body map <span class="h2-side">${sel ? `<span class="link" data-map-clear>Clear</span>` : ""}${infoButton("bodymap")}</span></h2>
+        ${infoText("bodymap", `Each muscle is coloured by how long since you trained it against its weekly target: green on track, yellow due, red overdue or never trained. The line above the figures counts your groups by status. Tap a muscle, or a row below, to read one on its own: a part you track colours its own region, a whole group colours all of its regions. Muscles you don't track are darker and hatched. The rows are the same list as Home's Muscle rotation.`)}
+        <div class="bm-readout"><div>${line1}</div><div class="muted">${line2}</div></div>
+        <div class="bm-figs">
+          <div>${bodyMapSVG("front", owners, sel)}<div class="bm-cap">Front</div></div>
+          <div>${bodyMapSVG("back", owners, sel)}<div class="bm-cap">Back</div></div>
         </div>
-
-        <div class="card">
-          <h2>Muscle rotation</h2>
-          ${rotationListHTML(rotation, true)}
-        </div>
+        ${untracked ? `<div class="bm-note small muted">Hatched muscles aren't tracked. <span class="link" data-nav="settings">Add them in Settings ›</span></div>` : ""}
       </div>
+      ${rotationListHTML(rotation, true, selectedGroup)}
     `;
   }
 
-  function rotationListHTML(rotation, tappable) {
+  // selectedGroup (Rotation tab): the name of the group the map readout is
+  // showing, so the row that owns the tapped region lights up as well.
+  function rotationListHTML(rotation, tappable, selectedGroup) {
     if (rotation.length === 0) return `<div class="empty">No muscle groups yet. Add some in Settings.</div>`;
-    return rotation.map((r) => rotationItemHTML(r, tappable)).join("");
+    return rotation.map((r) => rotationItemHTML(r, tappable, selectedGroup)).join("");
   }
 
   // Exercise by id. One that's been deleted from the library is rebuilt from
@@ -1903,19 +1955,20 @@
       <div class="view">
         <div class="card">
           <h2>Muscle groups ${infoButton("groups")}</h2>
-          ${infoText("groups", `Pick which muscle groups you want to track and how many times per week you're aiming to train each. Rotation and the Strength Index are both built from this list.`)}
+          ${infoText("groups", `The groups you track, in the order they sit on the body, each with what it colours on the map and its weekly target. Tap a group to change the target, track any of its parts on their own, or stop tracking it. Rotation and the Strength Index are both built from this list.`)}
           ${state.muscleGroups.length === 0 ? `<div class="empty">No muscle groups yet. Add your first below.</div>` : `
-          <div style="margin-bottom:12px">
-            ${state.muscleGroups.map((mg) => `
-              <div class="row" style="align-items:center">
-                <span>${esc(mg.name)}<div class="small muted">${catalogPlacement(mg)}</div></span>
-                <span style="display:flex;align-items:center;gap:8px">
-                  <input type="number" inputmode="numeric" min="1" max="14" value="${mg.frequency}" data-muscle-freq="${mg.id}" style="width:56px" />
-                  <span class="small muted">x/wk</span>
-                  <button class="btn sm danger" data-del-muscle="${mg.id}">Delete</button>
-                </span>
-              </div>
-            `).join("")}
+          <div class="group-list">
+            ${orderedMuscleGroups().map((mg) => {
+              const open = openListGroup === mg.id;
+              return `
+              <div class="group">
+                <div class="row list-tap group-head" role="button" aria-expanded="${open}" data-open-group="${mg.id}">
+                  <span>${esc(mg.name)}<div class="small muted">${catalogPlacement(mg)}</div></span>
+                  <span class="row-side"><span class="small muted" data-freq-of="${mg.id}">${mg.frequency}×/wk</span>${icon("chevron")}</span>
+                </div>
+                ${open ? groupEditorHTML(mg) : ""}
+              </div>`;
+            }).join("")}
           </div>`}
           <button class="btn ghost block" id="open-muscle-picker">+ Add muscle group</button>
         </div>
@@ -1960,64 +2013,110 @@
     `;
   }
 
-  // One line under a group's name in Settings: whether it is a whole catalog
-  // group, a part of one, or off the map.
+  // Settings shows the tracked groups in body order (the catalog's: chest to
+  // legs, each parent followed by any of its parts tracked on their own),
+  // then Cardio and anything else off the map, by name. Display order only;
+  // the stored list is untouched.
+  function orderedMuscleGroups() {
+    const rank = {};
+    let n = 0;
+    for (const parent of MUSCLE_CATALOG) { rank[parent.id] = n++; for (const part of parent.parts) rank[part.id] = n++; }
+    const of = (mg) => (mg.catalog in rank ? rank[mg.catalog] : n);
+    return state.muscleGroups.slice().sort((a, b) => of(a) - of(b) || a.name.localeCompare(b.name));
+  }
+
+  // One line under a group's name in Settings: what it colours on the body
+  // map. A parent lists the parts it covers (minus any tracked on their
+  // own, which then say which group they are part of); Chest, which has
+  // no parts, and anything off the map say so.
   function catalogPlacement(mg) {
     const entry = mg.catalog ? CATALOG_BY_ID[mg.catalog] : null;
     if (!entry) return "Not on the body map";
     if (entry.parent) return `Part of ${esc(CATALOG_BY_ID[entry.parent].name)}`;
-    return entry.parts.length ? "Whole group" : "";
+    if (!entry.parts.length) return "On the body map";
+    const covers = entry.parts.filter((id) => !state.muscleGroups.some((g) => g.catalog === id)).map((id) => CATALOG_BY_ID[id].name.toLowerCase());
+    if (!covers.length) return "All parts tracked on their own";
+    return esc(covers.join(", ").replace(/^./, (c) => c.toUpperCase()));
+  }
+
+  // The editor under an open group in the Settings list: its weekly target,
+  // its parts as chips (lit when tracked on their own; tapping one adds it
+  // as a group of its own or, with a confirm, stops tracking it), and Stop
+  // tracking. The one place a group is changed; the rows themselves stay quiet.
+  function groupEditorHTML(mg) {
+    const entry = mg.catalog ? CATALOG_BY_ID[mg.catalog] : null;
+    const parts = entry ? entry.parts.map((id) => CATALOG_BY_ID[id]) : [];
+    const tracked = new Set(state.muscleGroups.map((g) => g.catalog).filter(Boolean));
+    return `
+      <div class="group-edit">
+        <label for="freq-${mg.id}">Weekly target</label>
+        <div class="freq-field">
+          <input type="number" inputmode="numeric" min="1" max="${FREQUENCY_MAX}" value="${mg.frequency}" id="freq-${mg.id}" data-muscle-freq="${mg.id}" class="freq" />
+          <span class="label">×/wk</span>
+        </div>
+        ${parts.length ? `
+        <label>Parts</label>
+        <div class="chip-row">${parts.map((c) => `<span class="chip${tracked.has(c.id) ? " selected" : ""}" data-toggle-part="${c.id}">${esc(c.name)}</span>`).join("")}</div>` : ""}
+        <button class="btn sm danger" data-del-muscle="${mg.id}">Stop tracking</button>
+      </div>`;
   }
 
   // Settings > Add muscle group. The six catalog parents, each trackable as
   // one group or opened to pick its parts; Cardio and a free-text "something
   // else" below for groups that have no place on the map.
+  // The shell renders once when the sheet opens; taps inside it redraw only
+  // the list (renderMusclePicker), so the sheet neither slides up again nor
+  // loses its scroll position on every tap.
   function musclePickerSheetHTML() {
-    const tracked = new Set(state.muscleGroups.map((mg) => mg.catalog).filter(Boolean));
-    const trackedNames = new Set(state.muscleGroups.map((mg) => mg.name.toLowerCase()));
-    const parents = MUSCLE_CATALOG.map((parent) => {
-      const parts = parent.parts;
-      const trackedParts = parts.filter((c) => tracked.has(c.id)).length;
-      const isOpen = openCatalogParent === parent.id;
-      const partsNote = trackedParts > 0 ? `${trackedParts} of ${parts.length} parts` : parts.length ? `${parts.length} parts` : "";
-      const note = tracked.has(parent.id) ? `Tracked as one group${trackedParts > 0 ? ` · ${partsNote}` : ""}` : trackedParts > 0 ? `Tracking ${partsNote}` : partsNote;
-      return `
-        <div class="pick-row" style="cursor:default">
-          <span>${esc(parent.name)}<div class="small muted">${note}</div></span>
-          <span class="btn-row" style="flex-wrap:nowrap">
-            ${tracked.has(parent.id) ? `<span class="pill">Added</span>` : `<button class="btn sm" data-pick-catalog="${parent.id}">Track</button>`}
-            ${parts.length ? `<button class="btn sm ghost" data-open-catalog="${parent.id}" aria-expanded="${isOpen}">${isOpen ? "Hide parts" : "Parts"}</button>` : ""}
-          </span>
-        </div>
-        ${isOpen ? `<div class="chip-row" style="padding:10px 0 14px 12px;border-bottom:1px solid var(--hairline)">
-          ${parts.map((c) => `<span class="chip${tracked.has(c.id) ? " selected" : ""}" data-pick-catalog="${c.id}">${esc(c.name)}</span>`).join("")}
-        </div>` : ""}`;
-    }).join("");
-    const cardioTracked = trackedNames.has("cardio");
     return `
       <div class="sheet-wrap">
         <div class="sheet-backdrop" data-close-muscle-picker></div>
         <div class="sheet">
-          <div class="sheet-title"><h2 style="margin:0">Add muscle group</h2><span class="link" data-close-muscle-picker>Close</span></div>
-          <div class="small muted" style="margin-bottom:10px">Track a whole group, or open its parts to rotate them separately. Each starts at ${DEFAULT_FREQUENCY}×/wk; change that in the list.</div>
-          <div class="sheet-scroll">
-            ${parents}
-            <div class="label" style="margin:14px 0 6px">Not on the body map</div>
-            <div class="pick-row" style="cursor:default">
-              <span>Cardio</span>
-              ${cardioTracked ? `<span class="pill">Added</span>` : `<button class="btn sm" data-pick-name="Cardio">Track</button>`}
-            </div>
-            <div class="pick-row" style="cursor:default;border-bottom:none">
-              <span>Something else</span>
-              <button class="btn sm ghost" id="toggle-custom-muscle" aria-expanded="${customMuscleOpen}">${customMuscleOpen ? "Hide" : "Name it"}</button>
-            </div>
-            ${customMuscleOpen ? `<div class="row" style="gap:8px;padding:4px 0 12px">
-              <input type="text" id="new-muscle-name" placeholder="e.g. Neck" maxlength="30" style="flex:1" />
-              <button class="btn primary sm" id="add-muscle-btn">Add</button>
-            </div>` : ""}
-          </div>
+          <div class="sheet-title"><h2>Add muscle group</h2><span class="link" data-close-muscle-picker>Close</span></div>
+          <div class="sheet-scroll" id="muscle-picker-list">${musclePickerListHTML()}</div>
         </div>
       </div>`;
+  }
+
+  // One row per catalog group: Track, or "Tracked" once it is. A group with
+  // parts is a collapsible row (chevron) that opens into chips, one per part,
+  // lit when tracked; rows without parts keep a blank chevron-sized spacer so
+  // the controls line up down the sheet.
+  function musclePickerListHTML() {
+    const tracked = new Set(state.muscleGroups.map((mg) => mg.catalog).filter(Boolean));
+    const trackedNames = new Set(state.muscleGroups.map((mg) => mg.name.toLowerCase()));
+    const trackControl = (isTracked, attr) => isTracked ? `<span class="pill">Tracked</span>` : `<button class="btn sm" ${attr}>Track</button>`;
+    const spacer = `<span class="chevron"></span>`;
+    const parents = MUSCLE_CATALOG.map((parent) => {
+      const parts = parent.parts;
+      const control = trackControl(tracked.has(parent.id), `data-pick-catalog="${parent.id}"`);
+      if (!parts.length) return `<div class="pick-row static"><span>${esc(parent.name)}</span><span class="pick-side">${control}${spacer}</span></div>`;
+      const trackedParts = parts.filter((c) => tracked.has(c.id)).length;
+      const isOpen = openCatalogParent === parent.id;
+      return `
+        <div class="pick-row" role="button" data-open-catalog="${parent.id}" aria-expanded="${isOpen}">
+          <span>${esc(parent.name)}${trackedParts ? `<div class="small muted">${trackedParts} of ${parts.length} parts tracked</div>` : ""}</span>
+          <span class="pick-side">${control}${icon("chevron")}</span>
+        </div>
+        ${isOpen ? `<div class="chip-row pick-parts">
+          ${parts.map((c) => `<span class="chip${tracked.has(c.id) ? " selected" : ""}" data-pick-catalog="${c.id}">${esc(c.name)}</span>`).join("")}
+        </div>` : ""}`;
+    }).join("");
+    return `
+      ${parents}
+      <div class="label pick-label">Not on the body map</div>
+      <div class="pick-row static">
+        <span>Cardio</span>
+        <span class="pick-side">${trackControl(trackedNames.has("cardio"), `data-pick-name="Cardio"`)}${spacer}</span>
+      </div>
+      <div class="pick-row last" role="button" id="toggle-custom-muscle" aria-expanded="${customMuscleOpen}">
+        <span>Something else</span>
+        <span class="pick-side">${icon("chevron")}</span>
+      </div>
+      ${customMuscleOpen ? `<div class="row pick-custom">
+        <input type="text" id="new-muscle-name" placeholder="e.g. Neck" maxlength="${TAG_MAX}" />
+        <button class="btn primary sm" id="add-muscle-btn">Add</button>
+      </div>` : ""}`;
   }
 
   function customExerciseForm() {
@@ -2100,6 +2199,7 @@
   let addExerciseOpen = false;
   let musclePickerOpen = false;     // Settings: the "Add muscle group" sheet
   let openCatalogParent = null;     // which parent in that sheet shows its parts
+  let openListGroup = null;         // id of the tracked group whose editor is open in the Settings list
   let customMuscleOpen = false;     // the "something else" name field inside it
   let customExerciseOpen = false;
   let pickingVariationFor = null;   // exercise id waiting on a variation choice (Train)
@@ -2166,7 +2266,14 @@
     if (region) {
       const id = region.dataset.region || region.dataset.mapGroup;
       state.mapSelection = state.mapSelection === id ? null : id;
-      render(); return;
+      renderRotation();
+      if (state.mapSelection) revealBodyMap();
+      return;
+    }
+    // Tapping the figure away from a muscle, or Clear in the title, resets it
+    if (t.closest(".bodymap, [data-map-clear]")) {
+      if (state.mapSelection) { state.mapSelection = null; renderRotation(); }
+      return;
     }
     const infoBtn = t.closest("[data-info-toggle]");
     if (infoBtn) {
@@ -2349,15 +2456,28 @@
       return;
     }
 
-    // Settings: muscle groups
-    if (t.id === "open-muscle-picker") { musclePickerOpen = true; openCatalogParent = null; customMuscleOpen = false; render(); return; }
-    if (t.closest("[data-close-muscle-picker]")) { musclePickerOpen = false; render(); return; }
-    const openParent = t.closest("[data-open-catalog]");
-    if (openParent) {
-      openCatalogParent = openCatalogParent === openParent.dataset.openCatalog ? null : openParent.dataset.openCatalog;
+    // Settings: muscle groups. Tapping a row opens its editor; one open at a time.
+    const openGroup = t.closest("[data-open-group]");
+    if (openGroup) {
+      openListGroup = openListGroup === openGroup.dataset.openGroup ? null : openGroup.dataset.openGroup;
       render(); return;
     }
-    if (t.id === "toggle-custom-muscle") { customMuscleOpen = !customMuscleOpen; render(); return; }
+    const togglePart = t.closest("[data-toggle-part]");
+    if (togglePart) {
+      const id = togglePart.dataset.togglePart;
+      const existing = state.muscleGroups.find((mg) => mg.catalog === id);
+      if (existing) { await stopTracking(existing); return; }
+      const entry = CATALOG_BY_ID[id];
+      await Repo.addMuscleGroup(entry.name, DEFAULT_FREQUENCY, id);
+      state.muscleGroups = await Repo.listMuscleGroups();
+      render();
+      toast(`${entry.name} added`);
+      return;
+    }
+    if (t.id === "open-muscle-picker") { musclePickerOpen = true; openCatalogParent = null; customMuscleOpen = false; render(); return; }
+    if (t.closest("[data-close-muscle-picker]")) { musclePickerOpen = false; render(); return; }
+    // Track buttons sit inside the rows that open and close, so they are
+    // checked before the rows are
     const pickCatalog = t.closest("[data-pick-catalog]");
     const pickName = t.closest("[data-pick-name]");
     if (pickCatalog || pickName || t.id === "add-muscle-btn") {
@@ -2365,7 +2485,7 @@
       if (pickCatalog) {
         catalog = pickCatalog.dataset.pickCatalog;
         name = CATALOG_BY_ID[catalog].name;
-        if (state.muscleGroups.some((mg) => mg.catalog === catalog)) { toast("Already in your list"); return; }
+        if (state.muscleGroups.some((mg) => mg.catalog === catalog)) { toast("Already tracked"); return; }
       } else if (pickName) {
         name = pickName.dataset.pickName;
       } else {
@@ -2376,18 +2496,27 @@
       await Repo.addMuscleGroup(name, DEFAULT_FREQUENCY, catalog);
       state.muscleGroups = await Repo.listMuscleGroups();
       customMuscleOpen = false;
-      render();
+      // The sheet stays open for the next pick; Close redraws the list behind it
+      if (musclePickerOpen) renderMusclePicker(); else render();
       toast(`${name} added`);
+      return;
+    }
+    const openParent = t.closest("[data-open-catalog]");
+    if (openParent) {
+      openCatalogParent = openCatalogParent === openParent.dataset.openCatalog ? null : openParent.dataset.openCatalog;
+      renderMusclePicker(); return;
+    }
+    if (t.closest("#toggle-custom-muscle")) {
+      customMuscleOpen = !customMuscleOpen;
+      renderMusclePicker();
+      const nameInput = document.getElementById("new-muscle-name");
+      if (nameInput) nameInput.focus();
       return;
     }
     const delMuscle = t.closest("[data-del-muscle]");
     if (delMuscle) {
       const mg = state.muscleGroups.find((m) => m.id === delMuscle.dataset.delMuscle);
-      if (mg && confirm(`Delete "${mg.name}"? Exercises already tagged with it keep the tag, but it won't be offered for new ones.`)) {
-        await Repo.deleteMuscleGroup(mg.id);
-        state.muscleGroups = await Repo.listMuscleGroups();
-        render();
-      }
+      if (mg) await stopTracking(mg);
       return;
     }
 
@@ -2606,10 +2735,20 @@
     const freqInput = t.closest("[data-muscle-freq]");
     if (freqInput) {
       const mg = state.muscleGroups.find((m) => m.id === freqInput.dataset.muscleFreq);
-      const frequency = freqInput.value.trim() === "" && mg ? mg.frequency : clampFrequency(freqInput.value);
+      const typed = freqInput.value.trim();
+      const frequency = typed === "" && mg ? mg.frequency : clampFrequency(typed);
       freqInput.value = frequency; // show what was actually saved
+      // A blank goes back to what it was, which the field itself shows; a
+      // number that had to be rounded or capped gets a word about it
+      if (typed !== "" && typed !== String(frequency)) toast(`Saved as ${frequency}×/wk (whole numbers, 1 to ${FREQUENCY_MAX})`);
       if (mg) {
-        await Repo.updateMuscleGroup(Object.assign({}, mg, { frequency }));
+        // State first, then the row's own value line, then the write: a tap
+        // that redraws the screen before the write lands (closing the
+        // editor is usually the very next thing) still shows the new number
+        mg.frequency = frequency;
+        const shown = document.querySelector(`[data-freq-of="${mg.id}"]`);
+        if (shown) shown.textContent = `${frequency}×/wk`;
+        await Repo.updateMuscleGroup(Object.assign({}, mg));
         state.muscleGroups = await Repo.listMuscleGroups();
       }
       return;
@@ -2675,6 +2814,39 @@
   function renderSettingsExtra() {
     const holder = document.getElementById("custom-exercise-form");
     if (holder) holder.innerHTML = customExerciseOpen ? customExerciseForm() : "";
+  }
+  // Settings: stop tracking a group, from its editor's button or from a lit
+  // part chip. One confirm, one wording, one toast, whichever way in.
+  async function stopTracking(mg) {
+    if (!confirm(`Stop tracking "${mg.name}"? It comes off rotation and the body map. Exercises tagged with it keep the tag.`)) return;
+    await Repo.deleteMuscleGroup(mg.id);
+    state.muscleGroups = await Repo.listMuscleGroups();
+    if (openListGroup === mg.id) openListGroup = null;
+    render();
+    toast(`${mg.name} removed`);
+  }
+  // Settings > Add muscle group: redraw the sheet's list in place (keeps its
+  // scroll position and skips the slide-up), or the whole screen if the
+  // sheet is not on it.
+  function renderMusclePicker() {
+    const list = document.getElementById("muscle-picker-list");
+    if (list) list.innerHTML = musclePickerListHTML(); else render();
+  }
+  // Rotation tab: redraw its one section in place after a tap (the header
+  // and nav stay put, and the page keeps its scroll), or the whole screen if
+  // the tab is not on it.
+  function renderRotation() {
+    const el = document.getElementById("rotation");
+    if (el) el.innerHTML = rotationSectionHTML(); else render();
+  }
+  // Rotation tab: after a tap selects a muscle, make sure the readout and the
+  // figures are on screen. A row tapped from the bottom of the list would
+  // otherwise change them out of sight.
+  function revealBodyMap() {
+    const el = document.getElementById("body-map");
+    if (!el) return;
+    const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "nearest" });
   }
 
   // -----------------------------------------------------------------------

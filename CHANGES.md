@@ -676,3 +676,40 @@ hatch, so it is clear at a glance which muscles have no group behind
 them. A line under the figures says so and links to Settings; it only
 appears while something is untracked. Service worker cache bumped to
 v29.
+
+## 38. Rotation tab and muscle groups, reviewed and tidied  (28 Sep 2026)
+
+Three review passes (two on ease of use, one on the app's principles of
+reliability, simplicity and a modern feel) went over the Rotation tab and
+Settings > Muscle groups. The figure itself, the catalog and your data
+were not touched.
+
+Rotation tab: the line above the figures now sums up your groups at rest
+("1 overdue · 2 never trained · 1 due · 3 on track"), each count in its
+colour, which also acts as the legend. Tapping a muscle shows two lines:
+its name and verdict, then its group and when it was last trained; the
+lines are reserved, so the figures never jump. Tapping a muscle outlines
+every region its status applies to (its whole tracked group), the same
+as tapping a row, and the row lights up. A Clear link appears beside the
+title while something is selected, and tapping the figure away from a
+muscle also clears. Tapping a row from below the figures scrolls the map
+into view. The rows sit directly under the figures as one section. A tap
+redraws only that section, so nothing flickers. The selection is dropped
+when you leave the tab. The rotation rows on Home and here keep their day
+counts (Today, 4 days, Never); the verdict words live in the readout.
+
+Settings > Muscle groups: each tracked group is one quiet row: its name,
+what it colours on the map ("Quads, hamstrings, glutes, hips, calves",
+"Part of Legs", "Not on the body map"), its weekly target and a chevron.
+Tapping the row opens an editor underneath with the weekly target, the
+group's parts as chips (tap to track one on its own, tap again to stop),
+and Stop tracking. So parts are edited right in the list; the "+ Add
+muscle group" sheet is for adding. Rows are in body order, parents
+followed by their own parts. A corrected weekly target is announced
+("Saved as 14×/wk"). Delete is now Stop tracking everywhere, with one
+confirm and one toast. The add sheet's rows are tappable with a chevron
+to their parts, and the explanatory paragraph is gone.
+
+Small fixes across the app: every tab now opens at its top; the three
+bottom sheets share one title style; a desktop scrollbar in a sheet no
+longer clips its rows. Service worker cache bumped to v30.

@@ -139,6 +139,8 @@ html, body {
   justify-content: space-between;
   gap: 8px;
 }
+/* Text links (Body map, Trend, Close, Clear): accent, no underline */
+.link { color: var(--accent); cursor: pointer; }
 .card h2 .link {
   font-size: 12px;
   font-weight: 600;
@@ -147,6 +149,8 @@ html, body {
   letter-spacing: 0;
   cursor: pointer;
 }
+/* Links and the "i" at the right of a section title */
+.h2-side { display: flex; align-items: center; gap: 10px; }
 
 .row {
   display: flex;
@@ -284,7 +288,7 @@ body.typing .nav { transform: translateY(110%); pointer-events: none; }
   border: none;
   color: var(--text-dim);
   font-family: inherit;
-  font-size: 9.5px;
+  font-size: 10px;   /* six labels: "Progress" is 52px wide in a 61px tab (59px on a 360px phone) */
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -492,6 +496,24 @@ body.typing .nav { transform: translateY(110%); pointer-events: none; }
 .list-tap { cursor: pointer; }
 .list-tap:active { opacity: 0.7; }
 
+/* Settings > Muscle groups: quiet rows (name and what it colours on the map
+   left, weekly target and a chevron right); tapping one opens its editor
+   underneath (the collapsible-group pattern) */
+.group-list { margin-bottom: 16px; }
+.row-side { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.group + .group { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--hairline); }
+.group-head { padding: 2px 0; }
+.group-head .chevron { width: 18px; height: 18px; flex-shrink: 0; color: var(--text-dim); transition: transform var(--motion); }
+.group-head[aria-expanded="true"] .chevron { transform: rotate(90deg); }
+/* The editor: weekly target, the parts as chips, Stop tracking, indented
+   like the parts chips in the picker sheet */
+.group-edit { padding: 12px 0 0 12px; }
+.group-edit label { margin-top: 12px; }
+.group-edit label:first-child { margin-top: 0; }
+.group-edit .freq-field { display: flex; align-items: baseline; gap: 8px; }
+.group-edit .freq { width: 56px; }
+.group-edit .btn.danger { margin-top: 12px; padding-left: 0; padding-right: 0; }
+
 /* Section explanations: a small "i" in the title shows the text on demand */
 .info-btn {
   width: 24px; height: 24px; flex-shrink: 0;
@@ -514,7 +536,13 @@ svg[data-chart-xs] {
 }
 
 /* ---- Body map (Rotation tab): the one place status colours are fills ---- */
-.bm-readout { font-size: 12.5px; color: var(--text); margin-bottom: 12px; min-height: 18px; }
+/* The title, readout and figures; the rotation rows follow in the same
+   section. When a tap scrolls this into view it lands just under the status bar */
+#body-map { scroll-margin-top: calc(8px + env(safe-area-inset-top)); margin-bottom: 8px; }
+/* Two lines, both reserved whether or not a muscle is tapped, so the
+   figures never shift under a finger */
+.bm-readout { font-size: 12.5px; color: var(--text); margin-bottom: 12px; }
+.bm-readout > div { min-height: 18px; line-height: 18px; }
 .bm-readout b { font-weight: 600; }
 .bm-figs { display: flex; justify-content: space-evenly; gap: 8px; }
 .bm-figs > div { width: 47%; }
@@ -654,13 +682,16 @@ a, a:visited { color: var(--accent); }
   align-items: center;
   justify-content: space-between;
   flex-shrink: 0;
+  margin-bottom: 12px;
 }
-.sheet-title h2 { font-size: 15px; font-weight: 600; margin: 0 0 12px; }
+.sheet-title h2 { font-size: 15px; font-weight: 600; margin: 0; }
 .sheet-title .link { font-size: 13px; font-weight: 600; color: var(--accent); cursor: pointer; }
 .sheet-scroll {
   overflow-y: auto;
   flex: 1;
   min-height: 120px;
+  scrollbar-gutter: stable;   /* a classic scrollbar (desktop) reserves its lane instead of clipping the rows */
+  scrollbar-width: thin;
 }
 .sheet .card { border: none; padding: 0; margin-top: 0; overflow-y: auto; }
 
@@ -674,7 +705,7 @@ a, a:visited { color: var(--accent); }
 }
 @media (prefers-reduced-motion: reduce) {
   .sheet, .sheet-backdrop { animation: none; }
-  .toast, .btn, .nav, .nav button, input, .record-group-head .chevron, .week-dots .dot { transition: none; }
+  .toast, .btn, .nav, .nav button, input, .record-group-head .chevron, .pick-row .chevron, .group-head .chevron, .week-dots .dot { transition: none; }
 }
 
 /* Tappable exercise / variation rows inside the sheet */
@@ -688,6 +719,21 @@ a, a:visited { color: var(--accent); }
   cursor: pointer;
 }
 .pick-row:active { opacity: 0.7; }
+/* A row whose buttons do the work, not the row itself (the catalog picker) */
+.pick-row.static { cursor: default; }
+.pick-row.static:active { opacity: 1; }
+/* Catalog picker rows: the control (Track, or Tracked) then a chevron that
+   opens the group's parts as chips; rows without parts keep a blank one so
+   the controls line up. The open row hands its hairline to the chips. */
+.pick-row .pick-side { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.pick-row .chevron { width: 18px; height: 18px; flex-shrink: 0; color: var(--text-dim); transition: transform var(--motion); }
+.pick-row[aria-expanded="true"] .chevron { transform: rotate(90deg); }
+.pick-row[aria-expanded="true"] { border-bottom-color: transparent; }
+.pick-row.last { border-bottom: none; }
+.pick-parts { padding: 0 0 16px 12px; border-bottom: 1px solid var(--hairline); }
+.pick-label { margin: 16px 0 4px; }
+.pick-custom { gap: 8px; padding: 4px 0 12px; }
+.pick-custom input { flex: 1; min-width: 0; }
 .pick-row .chev {
   color: var(--text-dim);
   font-size: 18px;

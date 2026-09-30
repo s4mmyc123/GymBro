@@ -23,21 +23,32 @@ $mimeMap = @{
 try {
     while ($listener.IsListening) {
         $context = $listener.GetContext()
-        $reqPath = $context.Request.Url.LocalPath.TrimStart('/')
-        if ([string]::IsNullOrEmpty($reqPath)) { $reqPath = "index.html" }
-        $filePath = Join-Path $root $reqPath
+        # One bad request must not take the server down, so each one is
+        # handled in its own try/catch (a HEAD probe, a dropped connection).
+        try {
+            $reqPath = $context.Request.Url.LocalPath.TrimStart('/')
+            if ([string]::IsNullOrEmpty($reqPath)) { $reqPath = "index.html" }
+            $filePath = Join-Path $root $reqPath
 
-        if (Test-Path $filePath -PathType Leaf) {
-            $bytes = [System.IO.File]::ReadAllBytes($filePath)
-            $ext = [System.IO.Path]::GetExtension($filePath).ToLower()
-            $context.Response.ContentType = $mimeMap[$ext]
-            if (-not $context.Response.ContentType) { $context.Response.ContentType = "application/octet-stream" }
-            $context.Response.ContentLength64 = $bytes.Length
-            $context.Response.OutputStream.Write($bytes, 0, $bytes.Length)
-        } else {
-            $context.Response.StatusCode = 404
+            if (Test-Path $filePath -PathType Leaf) {
+                $bytes = [System.IO.File]::ReadAllBytes($filePath)
+                $ext = [System.IO.Path]::GetExtension($filePath).ToLower()
+                $context.Response.ContentType = $mimeMap[$ext]
+                if (-not $context.Response.ContentType) { $context.Response.ContentType = "application/octet-stream" }
+                $context.Response.Headers.Add("Cache-Control", "no-cache")
+                $context.Response.ContentLength64 = $bytes.Length
+                # A HEAD request gets the headers only; writing a body to it throws.
+                if ($context.Request.HttpMethod -ne "HEAD") {
+                    $context.Response.OutputStream.Write($bytes, 0, $bytes.Length)
+                }
+            } else {
+                $context.Response.StatusCode = 404
+            }
+        } catch {
+            Write-Host "Request failed: $($_.Exception.Message)"
+        } finally {
+            try { $context.Response.OutputStream.Close() } catch {}
         }
-        $context.Response.OutputStream.Close()
     }
 } finally {
     $listener.Stop()
