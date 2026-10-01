@@ -1943,18 +1943,15 @@
     return `${name} · ${p.count === 1 ? "1 weigh-in" : `avg of ${p.count} weigh-ins`}`;
   }
 
-  // The change across a range: from the mean of its first seven days of
-  // weigh-ins (a steady start) to the latest weigh-in itself, so today's
-  // reading shows the moment it is logged. Under a fortnight of data it is
-  // simply first to last. Null with fewer than two entries.
-  function weightChange(entries) {
-    if (entries.length < 2) return null;
-    const first = entries[0].date, last = entries[entries.length - 1].date;
-    const spanDays = daysBetween(first, last);
-    const mean = (list) => list.reduce((sum, e) => sum + e.weight, 0) / list.length;
-    const from = spanDays < 14 ? entries[0].weight : mean(entries.filter((e) => daysBetween(first, e.date) < 7));
-    const to = entries[entries.length - 1].weight;
-    return { delta: Math.round((to - from) * 10) / 10, spanDays, from };
+  // The change across a range: from the first point on the chart (the first
+  // weigh-in, or the first week's or month's average on the averaged ranges)
+  // to the latest weigh-in, which is always the last point. The same two
+  // numbers a finger would read at either end. Null with fewer than two
+  // points; spanDays is the range's own span, first entry to last.
+  function weightChange(entries, series) {
+    if (series.length < 2) return null;
+    const from = series[0].value, to = series[series.length - 1].value;
+    return { delta: Math.round((to - from) * 10) / 10, spanDays: daysBetween(entries[0].date, entries[entries.length - 1].date), from };
   }
 
   // The change as the stat shows it: "-2.0" with a KG unit, green while it
@@ -2028,8 +2025,8 @@
   // zone that opens the log row (day, field, Log or Update, Remove).
   // Scrubbing the chart writes the point under the finger into the big
   // number and its day, week or month into the label above it, and the
-  // change stat becomes the change from the start of the range to that
-  // point; the track holds still.
+  // change stat becomes the change from the first point to that one, over
+  // the time between them; the track holds still.
   function viewWeight() {
     const history = state.bodyweight;
     const latest = history[history.length - 1] || null;
@@ -2044,16 +2041,17 @@
     if (!latest) {
       pair = `<div class="wt-pair single"><div><span class="wt-none">No weigh-ins yet</span><div class="wt-note">Log your first weigh-in below</div></div></div>`;
     } else {
-      change = weightChange(inRange);
+      change = weightChange(inRange, series);
       let side;
       if (!change) {
         const note = history.length === 1 ? "First weigh-in" : inRange.length === 0 ? `Nothing logged${inWords}` : `Only one weigh-in${inWords}`;
         side = `<div class="wt-side"><div class="wt-note">${note}</div></div>`;
       } else {
         const stat = changeStatHTML(change.delta, goal);
+        const words = spanWords(change.spanDays, rangeOpt.key);
         side = `<div class="wt-side">
             <div class="wt-stat" data-readout="delta" data-default="${esc(stat)}">${stat}</div>
-            <div class="label wt-sub">${spanWords(change.spanDays, rangeOpt.key)}</div>
+            <div class="label wt-sub" data-readout="span" data-default="${esc(words)}">${words}</div>
           </div>`;
       }
       const value = `${fmtKg(latest.weight)}<span class="unit">kg</span>`;
@@ -2083,10 +2081,11 @@
     else if (series.length > 1) chart = areaChart(series, {
       height: 220, floor: 2,
       format: (v) => String(Math.round(v * 10) / 10),
-      readouts: series.map((p) => ({
+      readouts: series.map((p, i) => ({
         value: `${fmtKg(p.value)}<span class="unit">kg</span>`,
         when: weightPointLabel(p),
-        delta: changeStatHTML(Math.round((p.value - change.from) * 10) / 10, goal)
+        delta: changeStatHTML(Math.round((p.value - change.from) * 10) / 10, goal),
+        span: i === 0 ? "start of the range" : spanWords(daysBetween(inRange[0].date, p.date), rangeOpt.key)
       })),
       reference: state.weightGoal ? { value: state.weightGoal, label: `Goal ${goalKg(state.weightGoal)}` } : null
     });

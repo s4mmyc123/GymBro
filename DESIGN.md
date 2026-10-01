@@ -235,7 +235,7 @@ added here first, with a name.
   chosen one outlined in text colour. Tapping applies it immediately.
 - Weight tab: one section. The day as a label (Today, 9 days ago), then
   two stats with their tops on one line: the latest weigh-in at hero size
-  and the change over the range at stat size (the mean of the first week
+  and the change over the range at stat size (the first point on the chart
   to the latest weigh-in) with its span as a label under it, green while heading
   toward the goal. Then the goal track: a 2px hairline from the weight the
   goal was set at to the goal, Start and Goal as labels at the ends, a 2px
@@ -249,7 +249,8 @@ added here first, with a name.
   date picker, the Home widget's field, Log or Update, Remove for a day
   with an entry, Cancel. Scrubbing writes the point into the big number
   and its day label, and the change stat becomes the change from the
-  start of the range to that point; the track holds still.
+  first point to that one over the time between them; the track holds
+  still.
 
 ## 7. Motion
 

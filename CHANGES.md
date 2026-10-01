@@ -723,8 +723,8 @@ chart, and one button.
 
 - The number is your latest weigh-in, one decimal, with the unit beside
   it. Line one says when it was (Today, Yesterday, 6 days ago) and the
-  change over the selected range, measured from the average of the first
-  week in the range to the latest weigh-in;
+  change over the selected range, measured from the first point on the
+  chart to the latest weigh-in;
   it turns green while you are heading toward your goal. Line two is the
   goal: "Goal 82kg · 3.0kg to go · ~11 weeks", the estimate from the
   slope of your last four weeks, shown only while you are moving toward
@@ -793,8 +793,10 @@ latest weigh-in as its own point, with the weekly or monthly averages
 covering the finished weeks or months before it; the week or month still
 running is never averaged, only your latest reading stands for it. So the
 chart ends where the big number says you are. The change over the range
-now runs from the first week's average to that latest reading, so a high
-or low day shows the moment you log it. And while your finger is on a
-point, the change beside the big number becomes the change from the start
-of the range to that point; let go and it returns to the change to today.
-Service worker cache bumped to v39.
+runs from the first point on the chart (the first weigh-in, or the first
+week's or month's average on the longer ranges) to that latest reading,
+so a high or low day shows the moment you log it. And while your finger is
+on a point, the change beside the big number becomes the change from that
+first point to the one you are on, with the time between them under it
+("over 6 weeks"); let go and it returns to the change to today. Service
+worker cache bumped to v41.
