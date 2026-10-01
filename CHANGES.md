@@ -713,3 +713,88 @@ to their parts, and the explanatory paragraph is gone.
 Small fixes across the app: every tab now opens at its top; the three
 bottom sheets share one title style; a desktop scrollbar in a sheet no
 longer clips its rows. Service worker cache bumped to v30.
+
+## 39. Weight tab rebuilt: the number is the readout, the chart averages, one button  (30 Sep 2026)
+
+Four reviews (structure, chart, craft, features) went over the Weight tab
+and it was rebuilt from them. It now reads top to bottom: your latest
+weigh-in as one large number, two lines under it, the range tabs, the
+chart, and one button.
+
+- The number is your latest weigh-in, one decimal, with the unit beside
+  it. Line one says when it was (Today, Yesterday, 6 days ago) and the
+  change over the selected range, measured from the average of the first
+  week in the range to the latest weigh-in;
+  it turns green while you are heading toward your goal. Line two is the
+  goal: "Goal 82kg · 3.0kg to go · ~11 weeks", the estimate from the
+  slope of your last four weeks, shown only while you are moving toward
+  the goal and it is under a year away; "reached" once you pass the goal
+  in its own direction; "Set a goal" when there is none. Tap the line to
+  set, change or clear the goal in a sheet.
+- The chart averages as the span grows: up to six weeks of data every
+  weigh-in is plotted; up to about six months each point is a week's
+  average; beyond that a month's. Every plotted point has a tick, and
+  dragging across the chart puts the point under your finger into the
+  big number and names its day, week or month ("Aug 10 - Aug 16 · avg
+  of 5 weigh-ins"); release returns to the latest. The axis labels take the
+  finest step that fits: weekdays, dates, the 1st and 15th, months,
+  quarters or years, with January reading as the year. The goal line
+  stays inside the chart while the data keeps most of the height,
+  otherwise the goal is named at the nearer edge so a distant goal cannot
+  flatten the line. Gridlines sit at round values, the line is thinner and
+  the fill fainter, and the axis text is a touch larger with a halo so it
+  reads over the line.
+- Ranges are 1M, 3M, 6M, 1Y and All, with 3M the default; the week views
+  only showed daily noise. The tabs are taller to tap and hidden until
+  your history spans a month. The exercise detail screen shares the chart
+  and the ranges, so it gets the same look, labels and tabs.
+- Both rows of fields above the chart are gone. One full-width button
+  under the chart, "Log today's weight" or "Update today's weight", opens
+  the log row: a Today label that opens the phone's date picker so a past
+  day can be added or corrected, the weight field, Log or Update, and
+  Remove for a day that has an entry; Cancel closes it. Enter saves.
+  Toasts: "Weight logged", "Weight updated", "Weigh-in removed", "Goal
+  saved", "Goal cleared".
+- Home's weight number is printed with one decimal too, and the large
+  number size across the app is now 44px, as the design rules say.
+
+Data: the goal now remembers the weight it was set from (a new setting,
+weightGoalFrom, included in backups; a backup from before imports
+unchanged). A weigh-in can be deleted. Service worker cache bumped to
+v31.
+
+## 40. Weight tab: the top block redone, a blue line  (1 Oct 2026)
+
+After a day with section 39 on localhost, the block above the chart was
+too crowded. Four designers made alternatives in a comparison page and the
+chosen mix was built: the day as a small label (Today, 9 days ago), then two
+numbers with their tops on one line: your latest weigh-in, large, and beside
+it the change over the selected range at a smaller size with its span
+under it ("over 3 months"), green while it heads toward your goal. Under
+them the goal is a track instead of a sentence: a hairline from the weight
+the goal was set at to the goal, with a mark at today's weight and the
+three values as labels; tap it to set, change or clear the goal. "Set a
+goal" sits in its place when there is none.
+
+Gone: the "i" button and its explanation, the "3.0kg to go · ~3 months"
+line and the time estimate behind it (the slope of the last four weeks),
+and the two lines under the number. Dragging across the chart writes the
+point under your finger into the big number, and names its day, week or
+month in the label above it ("Aug 10 - Aug 16 · avg of 5 weigh-ins",
+"September 2026 · avg of 13 weigh-ins"); the change and the track hold
+still.
+
+The chart's line, fill and ticks are now blue (a new colour token, data),
+on the Weight tab and the exercise detail, so the copper accent stays for
+actions.
+
+Later the same day: on the averaged ranges the line always ends at your
+latest weigh-in as its own point, with the weekly or monthly averages
+covering the finished weeks or months before it; the week or month still
+running is never averaged, only your latest reading stands for it. So the
+chart ends where the big number says you are. The change over the range
+now runs from the first week's average to that latest reading, so a high
+or low day shows the moment you log it. And while your finger is on a
+point, the change beside the big number becomes the change from the start
+of the range to that point; let go and it returns to the change to today.
+Service worker cache bumped to v39.

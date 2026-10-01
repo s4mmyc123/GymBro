@@ -187,6 +187,7 @@
   //
   // Settings keys:
   //   weightGoal          number or null   user preference; included in backups
+  //   weightGoalFrom      number or null   the weight when the goal was saved (which way it points); in backups
   //   activeSession       SESSION or null  the in-progress workout draft; device-only
   //   builtinsCleared     true             first-run flags, see section 5
   //   muscleGroupsSeeded  true
@@ -436,6 +437,7 @@
       // Body weight: one record per day, saving again the same day replaces it
       listBodyweight: () => list("bodyweight", tidyBodyweight, byDate),
       setBodyweight: (date, weight) => put("bodyweight", { date, weight, loggedAt: Date.now() }),
+      deleteBodyweight: (date) => del("bodyweight", date),
 
       // Settings: small named values (see the key list in the header)
       getSetting, setSetting,
@@ -467,7 +469,8 @@
         // Only user preferences come in from a backup; the first-run flags are
         // this device's own business and are already set by the time you can import.
         const SETTING_RULES = {
-          weightGoal: (v) => v === null || positive(v, BODYWEIGHT_MAX) !== null
+          weightGoal: (v) => v === null || positive(v, BODYWEIGHT_MAX) !== null,
+          weightGoalFrom: (v) => v === null || positive(v, BODYWEIGHT_MAX) !== null
         };
 
         // Step 2: tidy each section with the same rules used when reading
@@ -919,16 +922,16 @@
     return icons[name] || "";
   }
 
-  // Selectable time windows for the Weight tab chart. Shortest is 1 week -
-  // the smallest granularity that still shows a meaningful trend.
+  // Selectable windows for the Weight tab and exercise detail charts. A
+  // month is the shortest: weight moves about 0.3kg a week against 0.7kg of
+  // daily noise, so a week or two shows noise, and the last fortnight is a
+  // scrub away on 1M. words is the window as a phrase ("over 3 months").
   const WEIGHT_RANGES = [
-    { key: "1w", label: "1W", days: 7 },
-    { key: "2w", label: "2W", days: 14 },
-    { key: "1m", label: "1M", days: 30 },
-    { key: "3m", label: "3M", days: 90 },
-    { key: "6m", label: "6M", days: 180 },
-    { key: "1y", label: "1Y", days: 365 },
-    { key: "all", label: "All", days: Infinity }
+    { key: "1m", label: "1M", days: 30, words: "1 month" },
+    { key: "3m", label: "3M", days: 90, words: "3 months" },
+    { key: "6m", label: "6M", days: 180, words: "6 months" },
+    { key: "1y", label: "1Y", days: 365, words: "1 year" },
+    { key: "all", label: "All", days: Infinity, words: "all time" }
   ];
 
   let state = {
@@ -936,9 +939,10 @@
     exercises: [],
     sessions: [],
     bodyweight: [],
-    weightGoal: null,    // target body weight (kg) - drawn as a horizontal line on the chart
+    weightGoal: null,    // target body weight (kg), drawn as a dashed line on the chart
+    weightGoalFrom: null, // the weight when the goal was saved: which way the goal points
     muscleGroups: [],
-    weightRange: "2w",   // defaults to 2 weeks, per WEIGHT_RANGES above
+    weightRange: "3m",   // Weight tab window: the first span where the trend shows through daily noise
     activeSession: null,  // in-memory in-progress workout
     progressDetail: null, // exerciseId being viewed in detail
     exerciseRange: "3m",  // chart window on the exercise detail screen (lifts are logged less often than weigh-ins)
@@ -976,8 +980,8 @@
   }
 
   async function loadAll() {
-    const [exercises, sessions, bodyweight, weightGoal, muscleGroups] = await Promise.all([
-      Repo.listExercises(), Repo.listSessions(), Repo.listBodyweight(), Repo.getSetting("weightGoal", null), Repo.listMuscleGroups()
+    const [exercises, sessions, bodyweight, weightGoal, weightGoalFrom, muscleGroups] = await Promise.all([
+      Repo.listExercises(), Repo.listSessions(), Repo.listBodyweight(), Repo.getSetting("weightGoal", null), Repo.getSetting("weightGoalFrom", null), Repo.listMuscleGroups()
     ]);
     state.exercises = exercises;
     state.sessions = sessions;
@@ -985,6 +989,7 @@
     // A goal of null or text (possible via an old backup) must not reach the
     // chart; fall back rather than trust the store.
     state.weightGoal = Number(weightGoal) > 0 && Number(weightGoal) <= BODYWEIGHT_MAX ? Number(weightGoal) : null;
+    state.weightGoalFrom = Number(weightGoalFrom) > 0 && Number(weightGoalFrom) <= BODYWEIGHT_MAX ? Number(weightGoalFrom) : null;
     state.muscleGroups = muscleGroups;
   }
 
@@ -1052,6 +1057,7 @@
     }
     if (route !== "settings") { musclePickerOpen = false; openCatalogParent = null; customMuscleOpen = false; openListGroup = null; }
     if (route !== "rotation") state.mapSelection = null; // the tab always opens on the overview
+    if (route !== "weight") { weightLogOpen = false; weightLogDate = null; goalSheetOpen = false; }
     state.route = route;
     state.progressDetail = null;
     render();
@@ -1676,39 +1682,55 @@
     return `
       <h2>Body weight <span class="link" data-nav="weight">Trend ›</span></h2>
       <div class="bw-row">
-        <span class="hero-num">${latest ? `${latest.weight}<span class="unit">kg</span>` : `<span class="muted" style="font-size:16px">No entry</span>`}</span>
+        <span class="hero-num">${latest ? `${fmtKg(latest.weight)}<span class="unit">kg</span>` : `<span class="muted" style="font-size:16px">No entry</span>`}</span>
         <span class="bw-log">
-          <span class="bw-field"><input type="number" inputmode="decimal" step="0.1" id="bodyweight-input" placeholder="0.0" value="${todayEntry ? todayEntry.weight : ""}" /><span class="unit">kg</span></span>
+          <span class="bw-field"><input type="number" inputmode="decimal" step="0.1" id="bodyweight-input" placeholder="0.0" value="${todayEntry ? fmtKg(todayEntry.weight) : ""}" /><span class="unit">kg</span></span>
           <button class="btn primary sm" id="save-bodyweight">${todayEntry ? "Update" : "Log"}</button>
         </span>
       </div>
     `;
   }
 
-  // Axis labels at round dates (each day, every other day, Mondays, the
-  // 1st of the month, quarters, years): the finest step that fits in about
-  // eight labels across the span. t0/t1 are local-midnight timestamps.
+  // Axis labels as a ladder: weekday names, every other day, Mondays, the
+  // 1st and 15th, months, every second month, quarters, half years, years.
+  // The finest rung whose labels fit is used: at most seven dated labels
+  // ("Sep 7") or eight month and year ones. January reads as the year, so a
+  // span that crosses a year says so. When the first regular label sits
+  // well in from the left edge, the month or year already under way when the
+  // data starts is named at the edge. t0/t1 are local-midnight timestamps.
   function dateTicks(t0, t1) {
-    const day = 86400000;
-    const span = t1 - t0;
-    const steps = [{ days: 1 }, { days: 2 }, { days: 7 }, { months: 1 }, { months: 3 }, { months: 12 }];
-    const step = steps.find((s) => span / (s.days ? s.days * day : s.months * 30.4 * day) < 7.5) || steps[steps.length - 1];
+    const dated = (d) => d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+    const monthName = (d) => d.getMonth() === 0 ? String(d.getFullYear()) : d.toLocaleDateString(undefined, { month: "short" });
     const first = new Date(t0);
-    const ticks = [];
-    if (step.months) {
-      const d = new Date(first.getFullYear(), first.getMonth(), 1);
-      while (d.getTime() < t0 || d.getMonth() % step.months !== 0) d.setMonth(d.getMonth() + 1);
-      for (; d.getTime() <= t1; d.setMonth(d.getMonth() + step.months)) {
-        const label = step.months === 12 ? String(d.getFullYear())
-          : d.toLocaleDateString(undefined, { month: "short" }) + (span > 365 * day ? " '" + String(d.getFullYear()).slice(2) : "");
-        ticks.push({ t: d.getTime(), label });
-      }
-    } else {
-      const d = new Date(first.getFullYear(), first.getMonth(), first.getDate());
-      while (d.getTime() < t0 || (step.days === 7 && d.getDay() !== 1)) d.setDate(d.getDate() + 1);
-      for (; d.getTime() <= t1; d.setDate(d.getDate() + step.days)) {
-        ticks.push({ t: d.getTime(), label: d.toLocaleDateString(undefined, { day: "numeric", month: "short" }) });
-      }
+    const startDay = new Date(first.getFullYear(), first.getMonth(), first.getDate());
+    const months = (n) => ({ cap: 8, min: 2, edge: monthName,
+      align: (d) => { d = new Date(d.getFullYear(), d.getMonth(), 1); while (d.getTime() < t0 || d.getMonth() % n !== 0) d.setMonth(d.getMonth() + 1); return d; },
+      step: (d) => d.setMonth(d.getMonth() + n), label: monthName });
+    const years = (n) => ({ cap: 8, min: 2, edge: (d) => String(d.getFullYear()),
+      align: (d) => { d = new Date(d.getFullYear(), 0, 1); while (d.getTime() < t0 || d.getFullYear() % n !== 0) d.setFullYear(d.getFullYear() + 1); return d; },
+      step: (d) => d.setFullYear(d.getFullYear() + n), label: (d) => String(d.getFullYear()) });
+    const rungs = [
+      { cap: 7, min: 1, align: (d) => d, step: (d) => d.setDate(d.getDate() + 1), label: (d) => d.toLocaleDateString(undefined, { weekday: "short" }) },
+      { cap: 7, min: 2, align: (d) => d, step: (d) => d.setDate(d.getDate() + 2), label: dated },
+      { cap: 6, min: 2, align: (d) => { while (d.getDay() !== 1) d.setDate(d.getDate() + 1); return d; }, step: (d) => d.setDate(d.getDate() + 7), label: dated },
+      { cap: 6, min: 2, align: (d) => { while (d.getDate() !== 1 && d.getDate() !== 15) d.setDate(d.getDate() + 1); return d; },
+        step: (d) => { if (d.getDate() === 1) d.setDate(15); else { d.setDate(1); d.setMonth(d.getMonth() + 1); } }, label: dated },
+      months(1), months(2), months(3), months(6), years(1), years(2), years(5), years(10)
+    ];
+    const ticksFor = (r) => {
+      const out = [];
+      const d = r.align(new Date(startDay));
+      while (d.getTime() <= t1 && out.length <= 64) { out.push({ t: d.getTime(), label: r.label(d) }); r.step(d); }
+      return out;
+    };
+    let rung = null, ticks = null;
+    for (const r of rungs) {
+      const tk = ticksFor(r);
+      if (tk.length >= r.min && tk.length <= r.cap) { rung = r; ticks = tk; break; }
+    }
+    if (!ticks) { rung = rungs[rungs.length - 1]; ticks = ticksFor(rung).slice(-8); }
+    if (rung.edge && ticks.length && (ticks[0].t - t0) / Math.max(1, t1 - t0) >= 0.13) {
+      ticks.unshift({ t: t0, label: rung.edge(startDay), edge: true });
     }
     return ticks;
   }
@@ -1731,26 +1753,41 @@
     ).join("")}</div>`;
   }
 
-  // Stock-app-style area chart: gradient fill under the line, gridlines with
-  // value labels, a dot on the latest point, and date bins along the bottom.
+  // The one chart (Weight, exercise detail): accent line at 1.5px over a
+  // barely-there fill, hairline gridlines at round values with a label each,
+  // a dot on the latest point, a short notch at every plotted point (skipped
+  // once points sit closer than a few units), date labels from dateTicks,
+  // and an optional dashed goal line in the good colour or a "Best" ring.
   // Press and drag across it to read any point (see the pointer handlers
   // near the click handler). points are { date, value }, date-ascending.
-  // Options: format(v) renders gridline labels; readouts[i] is the text
-  // shown for point i while scrubbing (the latest one shows by default);
-  // reference draws a dashed horizontal line ({ value, label }, the Weight
-  // goal); marker rings one point ({ index, label }, an exercise's best).
+  // Options: format(v) renders gridline labels; readouts[i] is what shows
+  // for point i while scrubbing: a string for the readout line above the
+  // chart, or an object whose keys name the elements marked
+  // data-readout="key" in the same section (Weight writes the point into
+  // its big number and day label); height is the viewBox height (170); floor is the smallest
+  // value span the y axis may show, so a flat fortnight is not a mountain;
+  // reference draws the goal ({ value, label }), inside the scale while the
+  // data keeps 40% of the height, otherwise as a pinned label at the nearer
+  // edge; marker rings one point ({ index, label }, an exercise's best).
+  let chartSeq = 0;
   function areaChart(points, opts) {
     const format = opts.format;
-    const w = 320, h = 170, padX = 6, padTop = 16, padBottom = 22;
+    const w = 320, h = opts.height || 170, padX = 6, padTop = 18, padBottom = 22;
     const values = points.map((p) => p.value);
-    const scaleValues = opts.reference ? values.concat([opts.reference.value]) : values;
-    const rawMin = Math.min(...scaleValues), rawMax = Math.max(...scaleValues);
-    const span = rawMax - rawMin || 1;
-    const pad = span * 0.2 || 1;
-    const min = rawMin - pad, max = rawMax + pad;
-    const range = max - min || 1;
+    let lo = Math.min(...values), hi = Math.max(...values);
+    if (opts.floor && hi - lo < opts.floor) { const c = (hi + lo) / 2; lo = c - opts.floor / 2; hi = c + opts.floor / 2; }
+    const ref = opts.reference || null;
+    let refPinned = null;
+    if (ref) {
+      const gl = Math.min(lo, ref.value), gh = Math.max(hi, ref.value);
+      if ((hi - lo) / ((gh - gl) || 1) >= 0.4) { lo = gl; hi = gh; }
+      else refPinned = ref.value < lo ? "below" : "above";
+    }
+    const span = hi - lo || 1;
+    const min = lo - span * 0.1, max = hi + span * 0.1;
+    const range = max - min;
 
-    // x is proportional to elapsed time, not to index - a year-old weigh-in
+    // x is proportional to elapsed time, not to index: a year-old weigh-in
     // and one from last week must not sit next to each other.
     const dayMs = (dateStr) => new Date(dateStr + "T00:00:00").getTime();
     const t0 = dayMs(points[0].date), tSpan = Math.max(1, dayMs(points[points.length - 1].date) - t0);
@@ -1760,34 +1797,43 @@
     const linePts = points.map((p, i) => `${xAt(i)},${yAt(p.value)}`).join(" ");
     const areaPts = `${xAt(0)},${h - padBottom} ${linePts} ${xAt(points.length - 1)},${h - padBottom}`;
 
-    const gridVals = [max - pad * 0.3, (max + min) / 2, min + pad * 0.3];
+    // Gridlines at round values: the smallest step that gives five or fewer
+    const step = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000].find((st) => range / st <= 5) || 1000;
+    const gridVals = [];
+    for (let v = Math.ceil(min / step - 1e-9) * step; v <= max + step * 1e-6; v += step) gridVals.push(Math.round(v * 1000) / 1000);
     const gridLines = gridVals.map((v) => {
       const y = yAt(v);
-      return `<line x1="${padX}" y1="${y}" x2="${w - padX}" y2="${y}" stroke="var(--border)" stroke-width="1"/>
-        <text x="${padX}" y="${y - 4}" font-size="9" fill="var(--text-dim)">${format(v)}</text>`;
+      return `<line x1="${padX}" y1="${y}" x2="${w - padX}" y2="${y}" stroke="var(--hairline)" stroke-width="1"/>
+        <text class="ax" x="${padX}" y="${y - 4}">${esc(String(format(v)).toUpperCase())}</text>`;
     }).join("");
 
     const xLabels = dateTicks(t0, t0 + tSpan).map((tick) => {
       const x = padX + ((tick.t - t0) / tSpan) * (w - padX * 2);
-      const anchor = x < 24 ? "start" : x > w - 24 ? "end" : "middle";
-      return `<text x="${x}" y="${h - 6}" font-size="9.5" fill="var(--text-dim)" text-anchor="${anchor}">${tick.label}</text>`;
+      const anchor = tick.edge || x < 24 ? "start" : x > w - 24 ? "end" : "middle";
+      return `<text class="ax" x="${x}" y="${h - 6}" text-anchor="${anchor}">${esc(tick.label.toUpperCase())}</text>`;
     }).join("");
 
     const last = points[points.length - 1];
 
-    // A short vertical tick through the line at every logged day, so you
-    // can see where the entries are (and where the scrub will snap).
-    // Skipped once points sit closer than a few pixels apart, where the
-    // ticks would merge into a band - the scrub still finds them.
+    // A short vertical notch through the line at every plotted point, so you
+    // can see where the data is (and where the scrub will snap). Skipped once
+    // points sit closer than a few units apart, where the notches would merge
+    // into a band; the scrub still finds them.
     const notches = (w - padX * 2) / Math.max(1, points.length - 1) >= 7
-      ? points.slice(0, -1).map((p, i) => { const x = xAt(i), y = yAt(p.value); return `<line x1="${x}" y1="${y - 4}" x2="${x}" y2="${y + 4}" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round"/>`; }).join("")
+      ? points.slice(0, -1).map((p, i) => { const x = xAt(i), y = yAt(p.value); return `<line x1="${x}" y1="${y - 3.5}" x2="${x}" y2="${y + 3.5}" stroke="var(--data)" stroke-width="1.25" stroke-linecap="round"/>`; }).join("")
       : "";
 
-    const ref = opts.reference;
-    const referenceLine = ref ? `
-      <line x1="${padX}" y1="${yAt(ref.value)}" x2="${w - padX}" y2="${yAt(ref.value)}" stroke="var(--good)" stroke-width="1.5" stroke-dasharray="4 3"/>
-      <text x="${w - padX}" y="${yAt(ref.value) - 4}" font-size="9" fill="var(--good)" text-anchor="end">${esc(ref.label)}</text>
-    ` : "";
+    let referenceHTML = "";
+    if (ref && !refPinned) {
+      referenceHTML = `
+      <line x1="${padX}" y1="${yAt(ref.value)}" x2="${w - padX}" y2="${yAt(ref.value)}" stroke="var(--good)" stroke-width="1" stroke-dasharray="4 3"/>
+      <text class="ax good" x="${w - padX}" y="${yAt(ref.value) - 4}" text-anchor="end">${esc(ref.label.toUpperCase())}</text>`;
+    } else if (ref) {
+      // The goal is far from the data: naming it at the nearer edge keeps the
+      // series readable instead of squashing it into a third of the height
+      const below = refPinned === "below";
+      referenceHTML = `<text class="ax good" x="${w - padX}" y="${below ? h - padBottom - 5 : padTop + 6}" text-anchor="end">${esc(ref.label.toUpperCase())} ${below ? "↓" : "↑"}</text>`;
+    }
 
     // Ring the marked point, label beside it on whichever side has room
     let markerHTML = "";
@@ -1795,8 +1841,8 @@
       const mx = xAt(opts.marker.index), my = yAt(points[opts.marker.index].value);
       const left = mx > w - 44;
       markerHTML = `
-      <circle cx="${mx}" cy="${my}" r="4.5" fill="none" stroke="var(--good)" stroke-width="2"/>
-      <text x="${left ? mx - 8 : mx + 8}" y="${my + 3}" font-size="9" font-weight="700" fill="var(--good)" text-anchor="${left ? "end" : "start"}">${esc(opts.marker.label)}</text>`;
+      <circle cx="${mx}" cy="${my}" r="4.5" fill="none" stroke="var(--good)" stroke-width="1.5"/>
+      <text class="ax good" x="${left ? mx - 8 : mx + 8}" y="${my + 3}" text-anchor="${left ? "end" : "start"}">${esc(opts.marker.label.toUpperCase())}</text>`;
     }
 
     // Point positions and readout text travel with the chart so scrubbing
@@ -1804,71 +1850,283 @@
     const xs = points.map((_, i) => Math.round(xAt(i) * 10) / 10);
     const ys = points.map((p) => Math.round(yAt(p.value) * 10) / 10);
     const readouts = opts.readouts;
-    const latestReadout = esc(readouts[readouts.length - 1]);
+    const heroMode = typeof readouts[readouts.length - 1] === "object";
+    const latestReadout = heroMode ? "" : esc(readouts[readouts.length - 1]);
+    const gradient = `areaGradient${++chartSeq}`;
 
     return `
-      <div class="chart-readout" data-chart-readout data-default="${latestReadout}">${latestReadout}</div>
-      <svg viewBox="0 0 ${w} ${h}" style="width:100%;height:${h}px;display:block"
+      ${heroMode ? "" : `<div class="chart-readout" data-chart-readout data-default="${latestReadout}">${latestReadout}</div>`}
+      <svg viewBox="0 0 ${w} ${h}" class="area-chart"
            data-chart-xs="${esc(JSON.stringify(xs))}" data-chart-ys="${esc(JSON.stringify(ys))}" data-chart-readouts="${esc(JSON.stringify(readouts))}">
         <defs>
-          <linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.35"/>
-            <stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/>
+          <linearGradient id="${gradient}" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="var(--data)" stop-opacity="0.18"/>
+            <stop offset="100%" stop-color="var(--data)" stop-opacity="0"/>
           </linearGradient>
         </defs>
         ${gridLines}
-        <polygon points="${areaPts}" fill="url(#areaGradient)" stroke="none"/>
-        <polyline points="${linePts}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <polygon points="${areaPts}" fill="url(#${gradient})" stroke="none"/>
+        <polyline points="${linePts}" fill="none" stroke="var(--data)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
         ${notches}
-        <circle cx="${xAt(points.length - 1)}" cy="${yAt(last.value)}" r="3.5" fill="var(--accent)"/>
-        ${referenceLine}
+        <circle cx="${xAt(points.length - 1)}" cy="${yAt(last.value)}" r="3" fill="var(--data)"/>
+        ${referenceHTML}
         ${markerHTML}
         <line data-scrub-guide x1="0" y1="${padTop - 6}" x2="0" y2="${h - padBottom}" stroke="var(--text-dim)" stroke-width="1" stroke-dasharray="3 3" style="display:none"/>
-        <circle data-scrub-dot cx="0" cy="0" r="5" fill="var(--accent)" stroke="var(--bg)" stroke-width="2" style="display:none"/>
+        <circle data-scrub-dot cx="0" cy="0" r="4.5" fill="var(--data)" stroke="var(--bg)" stroke-width="2" style="display:none"/>
         ${xLabels}
       </svg>
     `;
   }
 
+  // ---- Weight tab ---------------------------------------------------------
+  const fmtKg = (v) => (Math.round(v * 10) / 10).toFixed(1);   // "85.0": one decimal wherever a weigh-in is shown
+  const goalKg = (v) => `${Math.round(v * 10) / 10}kg`;         // "82kg", "82.5kg": the goal as typed
+  const DAY_MS = 86400000;
+  const dayMs = (dateStr) => new Date(dateStr + "T00:00:00").getTime();
+  const daysBetween = (a, b) => Math.round((dayMs(b) - dayMs(a)) / DAY_MS);
+  const mondayOf = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7));
+
+  // "Today", "Yesterday", "6 days ago", then the date once a month has passed
+  function freshness(dateStr) {
+    const n = daysAgo(dateStr);
+    return n === 0 ? "Today" : n === 1 ? "Yesterday" : n < 30 ? `${n} days ago` : fmtDate(dateStr);
+  }
+
+  // The plotted series for a span. Up to 42 days of data every weigh-in is
+  // a point; up to 200 days each point is a week's mean; beyond that a
+  // month's. The rule keys on the data's own span, never the tab, so All on
+  // a two-week-old account is still every weigh-in. The latest weigh-in is
+  // always the last point on its own, so the line ends where the big number
+  // says you are; the bins cover the weeks or months before it, and the
+  // one still running is never averaged (a half week is not a week). A
+  // point is { date, value, count, kind, key }: a bin sits at the mean of
+  // its entries' dates, so a lone entry keeps its day. Weeks or months
+  // nobody weighed in are skipped and the line joins across them, as it
+  // does across unlogged days.
+  function weightSeries(entries) {
+    const point = (e) => ({ date: e.date, value: e.weight, count: 1, kind: "day" });
+    if (entries.length < 2) return entries.map(point);
+    const span = daysBetween(entries[0].date, entries[entries.length - 1].date) + 1;
+    const kind = span <= 42 ? "day" : span <= 200 ? "week" : "month";
+    if (kind === "day") return entries.map(point);
+    const keyOf = (e) => kind === "month" ? e.date.slice(0, 7) : dateKey(mondayOf(new Date(e.date + "T00:00:00")));
+    const running = keyOf({ date: todayStr() });
+    const bins = [];
+    let cur = null;
+    for (const e of entries.slice(0, -1)) {
+      const key = keyOf(e);
+      if (key === running) continue;
+      if (!cur || cur.key !== key) { cur = { key, sum: 0, tsum: 0, count: 0 }; bins.push(cur); }
+      cur.sum += e.weight; cur.tsum += dayMs(e.date); cur.count++;
+    }
+    return bins.map((b) => ({
+      date: dateKey(new Date(Math.round(b.tsum / b.count))),
+      value: Math.round((b.sum / b.count) * 10) / 10,
+      count: b.count, kind, key: b.key
+    })).concat([point(entries[entries.length - 1])]);
+  }
+
+  // What the day label says while a point is under the finger: the day, or
+  // the span a bin covers (the week's Monday to Sunday, or the month) and
+  // how many weigh-ins it holds
+  function weightPointLabel(p) {
+    if (p.kind === "day") return fmtDate(p.date);
+    let name;
+    if (p.kind === "month") {
+      name = new Date(p.key + "-01T00:00:00").toLocaleDateString(undefined, { month: "long", year: "numeric" });
+    } else {
+      const start = new Date(p.key + "T00:00:00"), end = new Date(start);
+      end.setDate(end.getDate() + 6);
+      const dated = (d) => d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+      name = `${dated(start)} - ${dated(end)}`;
+    }
+    return `${name} · ${p.count === 1 ? "1 weigh-in" : `avg of ${p.count} weigh-ins`}`;
+  }
+
+  // The change across a range: from the mean of its first seven days of
+  // weigh-ins (a steady start) to the latest weigh-in itself, so today's
+  // reading shows the moment it is logged. Under a fortnight of data it is
+  // simply first to last. Null with fewer than two entries.
+  function weightChange(entries) {
+    if (entries.length < 2) return null;
+    const first = entries[0].date, last = entries[entries.length - 1].date;
+    const spanDays = daysBetween(first, last);
+    const mean = (list) => list.reduce((sum, e) => sum + e.weight, 0) / list.length;
+    const from = spanDays < 14 ? entries[0].weight : mean(entries.filter((e) => daysBetween(first, e.date) < 7));
+    const to = entries[entries.length - 1].weight;
+    return { delta: Math.round((to - from) * 10) / 10, spanDays, from };
+  }
+
+  // The change as the stat shows it: "-2.0" with a KG unit, green while it
+  // heads toward the goal, "no change" as quiet words
+  function changeStatHTML(delta, goal) {
+    const flat = Math.abs(delta) < 0.05;
+    const toward = !flat && goal && !goal.reached && Math.sign(delta) === goal.dir;
+    const cls = toward ? "good" : flat ? "quiet" : "";
+    return `<span class="${cls}">${flat ? "no change" : `${delta > 0 ? "+" : ""}${delta.toFixed(1)}<span class="unit">kg</span>`}</span>`;
+  }
+
+  // "over 3 months": the tab's own words when the data fills most of it,
+  // else the data's span rounded to days, weeks, months or years
+  function spanWords(spanDays, rangeKey) {
+    const opt = WEIGHT_RANGES.find((r) => r.key === rangeKey);
+    if (opt && opt.days !== Infinity && spanDays >= opt.days * 0.8) return `over ${opt.words}`;
+    const unit = (n, word) => `over ${n} ${word}${n === 1 ? "" : "s"}`;
+    if (spanDays < 14) return unit(Math.max(1, spanDays), "day");
+    if (spanDays < 60) return unit(Math.round(spanDays / 7), "week");
+    if (spanDays < 700) return unit(Math.round(spanDays / 30.4), "month");
+    return unit(Math.round(spanDays / 365), "year");
+  }
+
+  // The goal as facts: where it was set from (the weight at the time, or the
+  // first weigh-in for a goal saved before that was recorded), which way it
+  // points (so an overshoot reads as reached, never as a distance the other
+  // way), and how far is left. Null without a goal.
+  function weightGoalStatus(history) {
+    const goal = state.weightGoal;
+    if (!goal) return null;
+    const latest = history[history.length - 1];
+    if (!latest) return { reached: false, remaining: null, dir: 0, from: null };
+    const from = state.weightGoalFrom !== null ? state.weightGoalFrom : history[0].weight;
+    const dir = goal >= from ? 1 : -1;
+    const remaining = Math.round((goal - latest.weight) * dir * 10) / 10;
+    return { reached: remaining <= 0, remaining: Math.max(0, remaining), dir, from };
+  }
+
+  // Where the current weight sits on the goal track, 0 (the start) to 100
+  // (the goal). Reached pins it to the end; a start that is not on the far
+  // side of the goal gives nothing to measure along, so the mark stays at 0.
+  function goalTrackPos(status, now) {
+    if (status.reached) return 100;
+    const span = status.from - state.weightGoal;
+    if (Math.abs(span) < 0.05 || Math.sign(span) !== -status.dir) return 0;
+    return Math.max(0, Math.min(100, Math.round(((status.from - now) / span) * 100)));
+  }
+
+  // Weight tab > Goal: one field in a sheet, Save, and Clear goal once set
+  function goalSheetHTML() {
+    const g = state.weightGoal;
+    return `
+      <div class="sheet-wrap">
+        <div class="sheet-backdrop" data-close-goal></div>
+        <div class="sheet">
+          <div class="sheet-title"><h2>Goal weight</h2><span class="link" data-close-goal>Close</span></div>
+          <div class="bw-row wt-goalrow"><span class="bw-field"><input type="number" inputmode="decimal" step="0.1" id="weight-goal-input" placeholder="0.0" value="${g || ""}" enterkeyhint="done" /><span class="unit">kg</span></span></div>
+          <button class="btn primary block" id="save-weight-goal">Save</button>
+          ${g ? `<button class="btn danger block" id="clear-weight-goal">Clear goal</button>` : ""}
+        </div>
+      </div>`;
+  }
+
+  // The Weight tab. On top, the day as an eyebrow, then two stats with their
+  // tops on one line: the latest weigh-in at hero size and, beside it, the
+  // change over the range at stat size with its span under it, green while
+  // it heads toward the goal. Under them the goal as a track: a hairline
+  // from the weight the goal was set at to the goal, with a mark at the
+  // current weight; tapping it opens the goal sheet. Then the range tabs
+  // once the history spans a month, the chart, and one button in the thumb
+  // zone that opens the log row (day, field, Log or Update, Remove).
+  // Scrubbing the chart writes the point under the finger into the big
+  // number and its day, week or month into the label above it, and the
+  // change stat becomes the change from the start of the range to that
+  // point; the track holds still.
   function viewWeight() {
-    const fullHistory = state.bodyweight;
-    const filtered = filterDateRange(fullHistory, state.weightRange);
-    const todayEntry = fullHistory.find((e) => e.date === todayStr());
-    const latest = fullHistory[fullHistory.length - 1];
-    const rangeFirst = filtered[0];
-    const hasTrend = rangeFirst && latest && filtered.length > 1;
-    const delta = hasTrend ? Math.round((latest.weight - rangeFirst.weight) * 10) / 10 : null;
-    const pct = hasTrend && rangeFirst.weight ? Math.round((delta / rangeFirst.weight) * 1000) / 10 : null;
+    const history = state.bodyweight;
+    const latest = history[history.length - 1] || null;
+    const inRange = filterDateRange(history, state.weightRange);
+    const series = weightSeries(inRange);
+    const rangeOpt = WEIGHT_RANGES.find((r) => r.key === state.weightRange) || WEIGHT_RANGES[1];
+    const showTabs = history.length > 1 && daysBetween(history[0].date, latest.date) > 30;
+    const goal = weightGoalStatus(history);
+    const inWords = rangeOpt.key === "all" ? "" : ` in the last ${rangeOpt.words}`;
+
+    let pair, change = null;
+    if (!latest) {
+      pair = `<div class="wt-pair single"><div><span class="wt-none">No weigh-ins yet</span><div class="wt-note">Log your first weigh-in below</div></div></div>`;
+    } else {
+      change = weightChange(inRange);
+      let side;
+      if (!change) {
+        const note = history.length === 1 ? "First weigh-in" : inRange.length === 0 ? `Nothing logged${inWords}` : `Only one weigh-in${inWords}`;
+        side = `<div class="wt-side"><div class="wt-note">${note}</div></div>`;
+      } else {
+        const stat = changeStatHTML(change.delta, goal);
+        side = `<div class="wt-side">
+            <div class="wt-stat" data-readout="delta" data-default="${esc(stat)}">${stat}</div>
+            <div class="label wt-sub">${spanWords(change.spanDays, rangeOpt.key)}</div>
+          </div>`;
+      }
+      const value = `${fmtKg(latest.weight)}<span class="unit">kg</span>`;
+      pair = `<div class="wt-pair"><span class="hero-num" data-readout="value" data-default="${esc(value)}">${value}</span>${side}</div>`;
+    }
+
+    // The goal track, or a plain row when there is no track to draw
+    let track;
+    if (!goal) track = `<div class="wt-track plain" data-open-goal><span class="link">Set a goal ›</span></div>`;
+    else if (goal.remaining === null) track = `<div class="wt-track plain" data-open-goal>Goal ${goalKg(state.weightGoal)} ›</div>`;
+    else {
+      const pos = goalTrackPos(goal, latest.weight);
+      const startLabel = `Start ${fmtKg(goal.from)}`, nowLabel = fmtKg(latest.weight), goalLabel = `Goal ${Math.round(state.weightGoal * 10) / 10}`;
+      // The now label steps aside when it would run into an end label (the
+      // label role runs about 7.4px a character on a 335px column); the big
+      // number says the value anyway
+      const w = (t) => t.length * 7.4, x = (pos / 100) * 335, half = w(nowLabel) / 2;
+      const nowFits = x - half > w(startLabel) + 6 && x + half < 335 - w(goalLabel) - 6;
+      track = `<div class="wt-track" data-open-goal role="button" aria-label="Goal ${goalKg(state.weightGoal)}" style="--pos:${pos}%">
+          <div class="wt-ends"><span class="label">${startLabel}</span>${nowFits ? `<span class="label wt-now">${nowLabel}</span>` : ""}<span class="label wt-goal${goal.reached ? " good" : ""}">${goalLabel}</span></div>
+          <div class="wt-line"><i class="wt-mark"></i></div>
+        </div>`;
+    }
+
+    let chart = "";
+    if (!latest) chart = "";
+    else if (series.length > 1) chart = areaChart(series, {
+      height: 220, floor: 2,
+      format: (v) => String(Math.round(v * 10) / 10),
+      readouts: series.map((p) => ({
+        value: `${fmtKg(p.value)}<span class="unit">kg</span>`,
+        when: weightPointLabel(p),
+        delta: changeStatHTML(Math.round((p.value - change.from) * 10) / 10, goal)
+      })),
+      reference: state.weightGoal ? { value: state.weightGoal, label: `Goal ${goalKg(state.weightGoal)}` } : null
+    });
+    else if (history.length === 1) chart = `<div class="empty">Log again tomorrow to start a trend.</div>`;
+    else if (inRange.length === 1) chart = `<div class="empty">Only one weigh-in${inWords}. Try a longer range.</div>`;
+    else chart = `<div class="empty">Nothing logged${inWords}. Try a longer range.</div>`;
+
+    const logDate = weightLogDate || todayStr();
+    const entry = history.find((e) => e.date === logDate) || null;
+    const todayEntry = history.find((e) => e.date === todayStr()) || null;
+    let log;
+    if (!weightLogOpen) {
+      log = `<button class="btn ${todayEntry ? "" : "primary "}block wt-log" data-open-log>${todayEntry ? "Update today's weight" : "Log today's weight"}</button>`;
+    } else {
+      log = `
+          <div class="bw-row wt-logrow">
+            <span class="wt-date" data-pick-date role="button" tabindex="0" aria-label="Change the day">${logDate === todayStr() ? "Today" : fmtDate(logDate)}${icon("chevron")}<input type="date" id="weight-log-date" max="${todayStr()}" value="${logDate}" tabindex="-1" aria-hidden="true"></span>
+            <span class="bw-log">
+              <span class="bw-field"><input type="number" inputmode="decimal" step="0.1" id="bodyweight-input" placeholder="${latest ? fmtKg(latest.weight) : "0.0"}" value="${entry ? fmtKg(entry.weight) : ""}" enterkeyhint="done" /><span class="unit">kg</span></span>
+              <button class="btn primary" id="save-bodyweight">${entry ? "Update" : "Log"}</button>
+            </span>
+          </div>
+          <div class="wt-logfoot">
+            ${entry ? `<button class="btn danger" data-remove-weigh>Remove</button>` : "<span></span>"}
+            <button class="btn ghost" data-close-log>Cancel</button>
+          </div>`;
+    }
 
     return `
       <div class="view">
-        <div class="card">
-          <h2>Body weight</h2>
-          <div class="row" style="align-items:center;margin-bottom:2px">
-            <div style="font-size:30px;font-weight:800">${latest ? latest.weight + "kg" : "No entry"}</div>
-            <div style="display:flex;gap:6px;align-items:center">
-              <input type="number" inputmode="decimal" step="0.1" id="bodyweight-input" placeholder="kg" value="${todayEntry ? todayEntry.weight : ""}" style="width:88px" />
-              <button class="btn primary sm" id="save-bodyweight">${todayEntry ? "Update" : "Log"}</button>
-            </div>
-          </div>
-          ${delta !== null ? `<div style="margin:4px 0 2px"><span class="pill">${delta > 0 ? "+" : ""}${delta}kg${pct !== null ? ` (${pct > 0 ? "+" : ""}${pct}%)` : ""} over selected range</span></div>` : ""}
-          <div class="row" style="margin:10px 0;align-items:center">
-            <span class="small muted">${state.weightGoal ? `Goal: ${state.weightGoal}kg${latest ? ` · ${Math.abs(Math.round((latest.weight - state.weightGoal) * 10) / 10)}kg to go` : ""}` : "No goal weight set"}</span>
-            <div style="display:flex;gap:6px;align-items:center">
-              <input type="number" inputmode="decimal" step="0.1" id="weight-goal-input" placeholder="goal kg" value="${state.weightGoal || ""}" style="width:88px" />
-              <button class="btn sm" id="save-weight-goal">Save</button>
-            </div>
-          </div>
-          ${rangeSelectorHTML(state.weightRange, "weightRange")}
-          ${filtered.length > 1 ? areaChart(filtered.map((e) => ({ date: e.date, value: e.weight })), {
-              format: (v) => v.toFixed(1),
-              readouts: filtered.map((e) => `${fmtDate(e.date)} · ${e.weight}kg`),
-              reference: state.weightGoal ? { value: state.weightGoal, label: `Goal · ${state.weightGoal}kg` } : null
-            }) :
-            filtered.length === 1 ? `<div class="empty">Only one weigh-in in this range. Widen the range or log again tomorrow.</div>` :
-            `<div class="empty">No weigh-ins in this range yet.</div>`}
+        <div class="card wt">
+          <div class="label wt-when" data-readout="when" data-default="${latest ? esc(freshness(latest.date)) : "Latest"}">${latest ? freshness(latest.date) : "Latest"}</div>
+          ${pair}
+          ${track}
+          ${showTabs ? rangeSelectorHTML(state.weightRange, "weightRange") : ""}
+          <div class="wt-chart">${chart}</div>
+          ${log}
         </div>
       </div>
+      ${goalSheetOpen ? goalSheetHTML() : ""}
     `;
   }
 
@@ -2198,6 +2456,9 @@
   let selectedMuscles = [];
   let addExerciseOpen = false;
   let musclePickerOpen = false;     // Settings: the "Add muscle group" sheet
+  let weightLogOpen = false;        // Weight tab: the log row is open under the chart
+  let weightLogDate = null;         // Weight tab: the day the log row writes to; null is today
+  let goalSheetOpen = false;        // Weight tab: the "Goal weight" sheet
   let openCatalogParent = null;     // which parent in that sheet shows its parts
   let openListGroup = null;         // id of the tracked group whose editor is open in the Settings list
   let customMuscleOpen = false;     // the "something else" name field inside it
@@ -2303,34 +2564,71 @@
     const restBtn = t.closest("[data-rest]");
     if (restBtn) { startRest(Number(restBtn.dataset.rest)); return; }
 
-    // Body weight
+    // Body weight (the Weight tab and Home's quick log)
+    if (t.closest("[data-open-log]")) {
+      weightLogOpen = true; weightLogDate = null;
+      render();
+      const field = document.getElementById("bodyweight-input");
+      if (field) field.focus();
+      return;
+    }
+    if (t.closest("[data-close-log]")) { weightLogOpen = false; weightLogDate = null; render(); return; }
+    if (t.closest("[data-pick-date]")) {
+      // The phone's own date picker, anchored to the label it sits under
+      const picker = document.getElementById("weight-log-date");
+      if (picker) { try { picker.showPicker(); } catch (err) { picker.focus(); picker.click(); } }
+      return;
+    }
     if (t.id === "save-bodyweight") {
       const val = readPositive(document.getElementById("bodyweight-input"), BODYWEIGHT_MAX, "Weight");
       if (val === null) return;
-      await Repo.setBodyweight(todayStr(), val);
+      const date = state.route === "weight" && weightLogDate ? weightLogDate : todayStr();
+      const had = state.bodyweight.some((e) => e.date === date);
+      await Repo.setBodyweight(date, val);
       state.bodyweight = await Repo.listBodyweight();
+      weightLogOpen = false; weightLogDate = null;
       render();
-      toast("Weight logged");
+      toast(had ? "Weight updated" : "Weight logged");
       return;
     }
-    if (t.id === "save-weight-goal") {
-      const input = document.getElementById("weight-goal-input");
-      // A number input reports text like "abc" as an empty value plus
-      // badInput - don't mistake that for a deliberate clear.
-      if (input.validity && input.validity.badInput) { toast("Goal: enter a number"); return; }
-      if (input.value.trim() === "") {
-        await Repo.setSetting("weightGoal", null);
-        state.weightGoal = null;
-        render();
-        toast("Goal cleared");
-        return;
-      }
-      const val = readPositive(input, BODYWEIGHT_MAX, "Goal");
-      if (val === null) return;
-      await Repo.setSetting("weightGoal", val);
-      state.weightGoal = val;
+    if (t.closest("[data-remove-weigh]")) {
+      await Repo.deleteBodyweight(weightLogDate || todayStr());
+      state.bodyweight = await Repo.listBodyweight();
+      weightLogOpen = false; weightLogDate = null;
       render();
-      toast("Goal updated");
+      toast("Weigh-in removed");
+      return;
+    }
+    if (t.closest("[data-open-goal]")) {
+      goalSheetOpen = true;
+      render();
+      const field = document.getElementById("weight-goal-input");
+      if (field) field.focus();
+      return;
+    }
+    if (t.closest("[data-close-goal]")) { goalSheetOpen = false; render(); return; }
+    if (t.id === "clear-weight-goal" || t.id === "save-weight-goal") {
+      const input = document.getElementById("weight-goal-input");
+      const clearing = t.id === "clear-weight-goal" || input.value.trim() === "";
+      // A number input reports text like "abc" as an empty value plus
+      // badInput; don't mistake that for a deliberate clear.
+      if (!clearing && input.validity && input.validity.badInput) { toast("Goal: enter a number"); return; }
+      let goal = null, from = null;
+      if (!clearing) {
+        goal = readPositive(input, BODYWEIGHT_MAX, "Goal");
+        if (goal === null) return;
+        // The goal remembers the weight it was set from, so it knows which
+        // way it points: an overshoot then reads as reached, never as a
+        // distance the other way.
+        const latest = state.bodyweight[state.bodyweight.length - 1];
+        from = latest ? latest.weight : null;
+      }
+      await Repo.setSetting("weightGoal", goal);
+      await Repo.setSetting("weightGoalFrom", from);
+      state.weightGoal = goal; state.weightGoalFrom = from;
+      goalSheetOpen = false;
+      render();
+      toast(clearing ? "Goal cleared" : "Goal saved");
       return;
     }
     // Train / session
@@ -2675,6 +2973,11 @@
   // and nothing re-renders, so it stays smooth on a phone.
   const chartAt = (e) => (e.target.closest ? e.target.closest("svg[data-chart-xs]") : null);
   const chartReadout = (svg) => svg.parentElement.querySelector("[data-chart-readout]");
+  // A section may mark elements data-readout="key" (Weight's big number);
+  // an object readout is written into them key by key, and each goes back
+  // to its data-default on release. The exercise detail keeps the readout
+  // line above its chart and string readouts.
+  const readoutTargets = (svg) => (svg.closest(".card") || svg.parentElement).querySelectorAll("[data-readout]");
 
   function scrubChart(svg, clientX) {
     const xs = JSON.parse(svg.dataset.chartXs), ys = JSON.parse(svg.dataset.chartYs), readouts = JSON.parse(svg.dataset.chartReadouts);
@@ -2685,11 +2988,20 @@
     const guide = svg.querySelector("[data-scrub-guide]"), dot = svg.querySelector("[data-scrub-dot]");
     guide.setAttribute("x1", xs[i]); guide.setAttribute("x2", xs[i]); guide.style.display = "";
     dot.setAttribute("cx", xs[i]); dot.setAttribute("cy", ys[i]); dot.style.display = "";
-    chartReadout(svg).textContent = readouts[i];
+    const r = readouts[i];
+    if (typeof r === "object") {
+      const card = svg.closest(".card");
+      if (card) card.classList.add("scrubbing");
+      for (const el of readoutTargets(svg)) el.innerHTML = r[el.dataset.readout] || "";
+    } else chartReadout(svg).textContent = r;
   }
   function endScrub(svg) {
     svg.querySelector("[data-scrub-guide]").style.display = "none";
     svg.querySelector("[data-scrub-dot]").style.display = "none";
+    const card = svg.closest(".card");
+    if (card) card.classList.remove("scrubbing");
+    const targets = readoutTargets(svg);
+    if (targets.length) { for (const el of targets) el.innerHTML = el.dataset.default || ""; return; }
     const readout = chartReadout(svg);
     readout.textContent = readout.dataset.default;
   }
@@ -2714,7 +3026,21 @@
   // follow the visible bottom edge through --vv-gap, the distance between
   // the layout viewport's bottom and the visual viewport's.
   const isField = (el) => el && el.matches && el.matches("input, select, textarea");
-  appEl.addEventListener("focusin", (e) => { if (isField(e.target)) document.body.classList.add("typing"); });
+  appEl.addEventListener("focusin", (e) => {
+    if (!isField(e.target)) return;
+    document.body.classList.add("typing");
+    // A prefilled weight is there to be replaced, not appended to
+    if ((e.target.id === "bodyweight-input" || e.target.id === "weight-goal-input") && e.target.value) e.target.select();
+  });
+  // Enter (Done on a phone keyboard) saves the weight fields
+  appEl.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    const save = e.target.id === "bodyweight-input" ? "save-bodyweight" : e.target.id === "weight-goal-input" ? "save-weight-goal" : null;
+    if (!save) return;
+    e.preventDefault();
+    const btn = document.getElementById(save);
+    if (btn) btn.click();
+  });
   appEl.addEventListener("focusout", (e) => { if (isField(e.target)) document.body.classList.remove("typing"); });
   if (window.visualViewport) {
     const syncViewportGap = () => {
@@ -2732,6 +3058,17 @@
 
   async function handleChange(e) {
     const t = e.target;
+    if (t.id === "weight-log-date") {
+      // A picked day loads that day's entry into the field (or an empty
+      // field to add one); today goes back to the plain "Today" label
+      if (t.value && t.value <= todayStr()) {
+        weightLogDate = t.value === todayStr() ? null : t.value;
+        render();
+        const field = document.getElementById("bodyweight-input");
+        if (field) field.focus();
+      }
+      return;
+    }
     const freqInput = t.closest("[data-muscle-freq]");
     if (freqInput) {
       const mg = state.muscleGroups.find((m) => m.id === freqInput.dataset.muscleFreq);

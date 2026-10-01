@@ -29,7 +29,9 @@ This week, Body weight, Muscle rotation with day ticks; no history list).
 - **Air is the point.** More space between things than feels necessary
   on a first pass. If a screen looks empty, it is probably right.
 - **One accent, rarely.** The accent appears on the single primary action
-  and on your data line. Nothing else carries it. The one exception is
+  and on small markers (the goal track's mark). Your data line is the
+  data token, a blue, so it never competes with the action. Nothing else
+  carries either. The one exception is
   the start buttons (Start workout and Resume workout on Home, Start new
   session on Train), which stay green: starting a workout is the app's
   main verb and has always been green.
@@ -107,7 +109,7 @@ change between themes, and no code outside `:root` knows which theme is
 active. That is the whole point of the token rule.
 
 Tokens every theme must define: bg, surface, hairline, text, text-dim,
-accent, good, warn, bad. Text on the accent is always bg.
+accent, data, good, warn, bad. Text on the accent is always bg.
 
 Three themes ship. Graphite is the default. Measured contrast on each
 theme's bg is in brackets.
@@ -123,6 +125,7 @@ theme's bg is in brackets.
 | good     | #7cc49a (9.5)        | #8fcfa6 (11.6)      | #2a7348 (4.9)        |
 | warn     | #d9b256 (9.7)        | #dcc26a (12.0)      | #7a5e0e (4.9)        |
 | bad      | #e07070 (6.2)        | #e27b7b (7.4)       | #b4373a (5.3)        |
+| data     | #5aa0f2 (7.6)        | #6fb0ff (9.3)       | #1d5fb8 (5.6)        |
 
 Rules that hold in every theme:
 
@@ -136,7 +139,8 @@ Rules that hold in every theme:
   against bg, so the figure reads as a body in every theme. Its seams are
   drawn in bg. Its sculpting is a white-to-black overlay at low opacity,
   theme-neutral by design.
-- The accent appears on the primary action and your data line only.
+- The accent appears on the primary action and on small markers only;
+  a chart's series is the data token.
 - Adding a theme means adding one block of nine values and a swatch in the
   picker, nothing else. If a theme needs a code change elsewhere, the code
   is wrong, not the theme.
@@ -157,17 +161,26 @@ added here first, with a name.
   Optional "i" info button at the right of the title.
 - Row: label left, value right, optional second line under each, 16px
   tall gap, hairline between rows.
-- Hero: one display number with its unit at label size, and one line of
-  context under it.
+- Hero: one display number with its unit at label size, and one or two
+  reserved lines of context under it, in the readout shape (a bold lead,
+  a middle dot, the fact, status in its colour). On a screen with a chart
+  the hero is the chart's readout: scrubbing writes the point under the
+  finger into the number and the first line, release restores them.
 - Status text: a value coloured good, warn or bad, with no background.
-- Tabs: a row of text options with a 1px underline on the active one.
-  Used for ranges and variations.
+- Tabs: a row of text options with a 1px underline on the active one,
+  44px tall with the row's width shared equally. Used for ranges (1M, 3M,
+  6M, 1Y, All) and variations.
 - Button: primary (accent fill, bg text), secondary (hairline outline),
   danger (bad-coloured text, no fill). Full-width in sheets, inline
   elsewhere. Label in sentence case.
 - Input: underline only, unit at label size on the right, no box.
-- Area chart (shared by Weight and exercise detail): readout line above,
-  1.5px line, faint fill, scrub guide, tick per entry, date bins below.
+- Area chart (shared by Weight and exercise detail): 1.5px line in the
+  data token, faint fill, hairline gridlines at round values with a
+  haloed label each, a tick per plotted point, date labels from the
+  ladder in section 9, a scrub guide; the readout is a line above the
+  chart or elements the screen marks for it (Weight's big number). The
+  goal is a dashed good line inside the scale while the data keeps 40%
+  of the height, otherwise a pinned label at the nearer edge.
 - Collapsible group (Records): title row with count and a thin chevron.
 - Bottom sheet: the only surface, square corners, slides up.
 - Empty state: one sentence saying what to do, never how it feels.
@@ -220,6 +233,23 @@ added here first, with a name.
   belong to the body map's readout and summary line, one tap away.
 - Theme picker (Settings): one row of square swatches, one per theme, the
   chosen one outlined in text colour. Tapping applies it immediately.
+- Weight tab: one section. The day as a label (Today, 9 days ago), then
+  two stats with their tops on one line: the latest weigh-in at hero size
+  and the change over the range at stat size (the mean of the first week
+  to the latest weigh-in) with its span as a label under it, green while heading
+  toward the goal. Then the goal track: a 2px hairline from the weight the
+  goal was set at to the goal, Start and Goal as labels at the ends, a 2px
+  accent mark at the current weight with its value above it (dropped when
+  it would touch an end label), the Goal label in good once reached; the
+  row opens the Goal weight sheet, and reads "Set a goal" when there is
+  none. Range tabs once the history spans a month, the chart (weigh-ins up
+  to 42 days of data, weekly means to 200, monthly beyond), then one
+  button in the thumb zone, "Log today's weight" or "Update today's
+  weight", which opens the log row: a Today label that opens the native
+  date picker, the Home widget's field, Log or Update, Remove for a day
+  with an entry, Cancel. Scrubbing writes the point into the big number
+  and its day label, and the change stat becomes the change from the
+  start of the range to that point; the track holds still.
 
 ## 7. Motion
 
@@ -242,9 +272,24 @@ added here first, with a name.
 
 ## 9. Charts
 
-- One chart component, one look: accent line at 1.5px, a barely-there
-  fill, hairline gridlines with a value label, date bins on the axis, a
-  tick per entry, scrubbable.
+- One chart component, one look: a 1.5px line in the data token, a
+  barely-there fill, hairline gridlines at round values with a label,
+  date labels on the axis, a tick per plotted point, scrubbable.
+- A long span is averaged, never drawn as a hairy band: every entry up
+  to 42 days of data, weekly means to 200 days, monthly means beyond. A
+  bin sits at the mean date of its entries and the readout says what it
+  is ("avg of 5 weigh-ins"). The latest entry is always the last point on
+  its own, so the line ends where the hero says, and the week or month
+  still running is never averaged. The rule keys on the data's span, not
+  the tab.
+- Axis labels are a ladder (weekdays, every other day, Mondays, the 1st
+  and 15th, months, every second month, quarters, half years, years): the
+  finest rung with at most seven dated or eight month and year labels.
+  January reads as the year; a month or year already under way at the
+  left edge is named there.
+- The y axis is the data's, padded 10% with a floor (2kg for weight) so
+  a flat fortnight is not a mountain; the goal joins the scale only while
+  the data keeps 40% of the height.
 - Best or goal is the only annotation, in good.
 - Never label every point. Never add a legend; if a chart needs one, it
   has too many series.

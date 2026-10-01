@@ -16,6 +16,7 @@
   --warn: #d9b256;
   --bad: #e07070;
   --body: #46413c;                 /* the figure on the body map: muscle tone when not tracked */
+  --data: #5aa0f2;                 /* the chart's series (line, fill, ticks): a blue, so the accent stays for actions */
   --overlay: rgba(0, 0, 0, 0.6);
 
   /* Older names still used by a few components, mapped to the tokens */
@@ -27,7 +28,7 @@
   --radius-control: 2px;
   --font-body: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-display: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --motion: 150ms ease;
+  --motion: 200ms ease;
   color-scheme: dark;
 }
 
@@ -64,7 +65,7 @@ html, body {
 .hero-num {
   font-family: var(--font-display);
   font-weight: 300;
-  font-size: 34px;
+  font-size: 44px;
   line-height: 1;
   letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
@@ -315,11 +316,10 @@ body.typing .nav { transform: translateY(110%); pointer-events: none; }
 /* ---- Tabs (ranges, variations): text with an underline on the active one ---- */
 .range-tabs {
   display: flex;
-  justify-content: space-between;
-  margin: 16px 0 10px;
-  overflow-x: auto;
+  margin: 16px 0 8px;
 }
 .range-tabs button {
+  flex: 1;                 /* 44px tall, the width of the row shared out: a thumb target, not a word */
   background: none;
   border: none;
   border-bottom: 1px solid transparent;
@@ -327,9 +327,9 @@ body.typing .nav { transform: translateY(110%); pointer-events: none; }
   font-family: inherit;
   font-size: 12.5px;
   font-weight: 600;
-  padding: 6px 2px;
+  padding: 14px 0 13px;
   cursor: pointer;
-  flex-shrink: 0;
+  text-align: center;
 }
 .range-tabs button.active {
   color: var(--text);
@@ -526,6 +526,22 @@ body.typing .nav { transform: translateY(110%); pointer-events: none; }
 .info-btn[aria-expanded="true"] { color: var(--accent); border-color: var(--accent); }
 .info-text { font-size: 12.5px; color: var(--text-dim); margin: -4px 0 14px; line-height: 1.5; }
 
+/* Area charts (Weight, exercise detail): the SVG scales with its column;
+   axis text is the label role with a background halo so it stays legible
+   where it crosses the line or the fill, in every theme */
+svg.area-chart { width: 100%; height: auto; display: block; }
+svg.area-chart text.ax {
+  font-size: 9.5px;        /* 11px on a 375px phone: the label role, scaled with the chart */
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  fill: var(--text-dim);
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+svg.area-chart text.ax.good { fill: var(--good); }
+
 /* Area charts (Weight, exercise detail): readout line above, scrubbable */
 .chart-readout { font-size: 12px; color: var(--text-dim); margin: 2px 0 4px; min-height: 16px; }
 svg[data-chart-xs] {
@@ -622,6 +638,58 @@ a, a:visited { color: var(--accent); }
 .bw-row .bw-field:focus-within { border-bottom-color: var(--accent); }
 .bw-row .bw-field .unit { font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; padding-bottom: 5px; }
 
+/* ---- Weight tab: eyebrow, two stats, goal track, chart, one button ---- */
+.wt-when { display: block; line-height: 16px; min-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wt-none { font-family: var(--font-display); font-weight: 300; font-size: 24px; line-height: 1; color: var(--text-dim); }
+/* The pair: the hero on the left, the change stat on the right with its top
+   nudged 3px so the digits of a 24px and a 44px number start on one line */
+.wt-pair { display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; align-items: start; margin-top: 16px; }
+.wt-pair.single { grid-template-columns: 1fr; }
+.wt-pair .hero-num { white-space: nowrap; }
+.wt-side { min-width: 0; padding-top: 3px; }
+.wt-stat { font-family: var(--font-display); font-weight: 300; font-size: 24px; line-height: 1; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wt-stat .good { color: var(--good); }
+.wt-stat .quiet { color: var(--text-dim); }
+.wt-stat .unit { font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; margin-left: 4px; }
+.wt-sub { display: block; line-height: 16px; min-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wt-stat + .wt-sub { margin-top: 4px; }
+.wt-note { font-size: 12.5px; line-height: 16px; color: var(--text-dim); padding-top: 6px; }
+.wt-pair.single .wt-note { padding-top: 8px; }
+/* The goal track: a hairline from the start weight to the goal with a mark
+   at the current weight (its place is the --pos the view sets); the whole
+   row opens the goal sheet */
+.wt-track { position: relative; margin-top: 28px; padding: 0 0 8px; min-height: 40px; cursor: pointer; -webkit-user-select: none; user-select: none; transition: opacity var(--motion); }
+.wt-track:active { opacity: 0.75; }
+.wt-track.plain { display: flex; align-items: center; font-size: 12.5px; color: var(--text-dim); }
+.wt-ends { position: relative; height: 14px; line-height: 14px; white-space: nowrap; }
+.wt-ends .label { position: absolute; top: 0; left: 0; }
+.wt-ends .wt-goal { left: auto; right: 0; }
+.wt-ends .wt-goal.good { color: var(--good); }
+.wt-ends .wt-now { left: var(--pos); transform: translateX(-50%); }
+.wt-line { position: relative; height: 10px; margin-top: 8px; }
+.wt-line::before { content: ""; position: absolute; left: 0; right: 0; top: 4px; height: 2px; background: var(--hairline); }
+.wt-mark { position: absolute; top: 0; left: var(--pos); width: 2px; height: 10px; margin-left: -1px; background: var(--accent); }
+.wt-chart { margin-top: 8px; min-height: 230px; display: flex; flex-direction: column; justify-content: center; }
+.wt-chart .empty { padding: 0 10px; }
+.wt-log { margin-top: 24px; padding: 15px 16px; }   /* 47px: a thumb target */
+.wt-logrow { margin-top: 24px; min-height: 47px; }
+.wt-logrow .btn.primary { padding: 14px 18px; }
+.wt-date {
+  position: relative;
+  display: inline-flex; align-items: center; gap: 2px;
+  padding: 0 0 9px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.wt-date svg { width: 16px; height: 16px; transform: rotate(90deg); }
+.wt-date input[type="date"] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; pointer-events: none; padding: 0; border: none; }
+.wt-logfoot { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; }
+.wt-logfoot .btn { padding-left: 0; padding-right: 0; border-color: transparent; }
+.wt-goalrow { justify-content: flex-start; margin: 4px 0 20px; }
+.wt-goalrow .bw-field input { width: 96px; text-align: left; }
+.sheet .btn.block + .btn.block { margin-top: 8px; }
+
 /* Last-session + personal-best stat strip on each exercise while logging */
 .ex-stats {
   display: flex;
@@ -676,6 +744,7 @@ a, a:visited { color: var(--accent); }
   display: flex;
   flex-direction: column;
   animation: sheetUp 200ms ease-out;
+  bottom: var(--vv-gap, 0px);   /* rides up with the on-screen keyboard */
 }
 .sheet-title {
   display: flex;
